@@ -102,8 +102,8 @@
 
     <div class="controls-scroll">
         <button class="btn active" onclick="setFilter('all', this)">全部</button>
-        <button class="btn" onclick="setFilter('manual', this)">手动</button>
-        <button class="btn" onclick="setFilter('auto', this)">自动</button>
+        <button class="btn" onclick="setFilter('manual', this)">我上传的</button>
+        <button class="btn" onclick="setFilter('auto', this)">机捡的垃圾</button>
         <div style="width: 1px; background:#e2e8f0; margin:0 5px;"></div>
         <button class="btn btn-manage" onclick="toggleSelectMode()" id="manageBtn">✅ 管理</button>
         <button class="btn btn-delete" id="batchDelBtn" onclick="deleteBatch()">🗑️ 删除</button>
@@ -141,7 +141,7 @@
 
             <div id="tab-meme" class="tab-content active">
                 <div class="form-group"><label>发图概率 (%)</label><input type="number" id="conf_reply_prob"><div class="hint">每句话带图的可能性</div></div>
-                <div class="form-group"><label>存图冷却 (秒)</label><input type="number" id="conf_auto_save_cooldown"><div class="hint">防止 AI 疯狂鉴黄刷屏</div></div>
+                <div class="form-group"><label>存图冷却 (秒)</label><input type="number" id="conf_auto_save_cooldown"><div class="hint">防止 AI 疯狂捡垃圾</div></div>
             </div>
 
             <div id="tab-logic" class="tab-content">
