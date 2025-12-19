@@ -132,7 +132,21 @@
         
         .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-100px); background: #1e293b; color: white; padding: 12px 24px; border-radius: 50px; font-size: 0.95rem; z-index: 300; transition: transform 0.3s; opacity: 0; box-shadow: 0 5px 15px rgba(0,0,0,0.2); font-weight: 500; }
         .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
-        
+
+        /* === 把这块 CSS 粘贴进去，修复弹窗样式 === */
+        .tabs { display: flex; background: #f1f5f9; padding: 4px; border-radius: 16px; margin-bottom: 20px; }
+        .tab { flex: 1; text-align: center; padding: 10px 0; cursor: pointer; color: #64748b; font-weight: 600; border-radius: 12px; transition: all 0.2s; position: relative; }
+        .tab.active { background: white; color: var(--primary); box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .tab.active::after { display: none; } /* 去掉原来的下划线 */
+        .tab-content { display: none; animation: fadeIn 0.2s; }
+        .tab-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .form-group { margin-bottom: 16px; background: #f8fafc; padding: 12px; border-radius: 16px; border: 1px solid #f1f5f9; }
+        .form-group label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: #1e293b; font-weight: 700; }
+        .form-group input { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 1rem; background: white; outline: none; transition: border-color 0.2s; }
+        .form-group input:focus { border-color: var(--primary); }
+        /* =========================================== */
         /* 进度条 */
         .progress-bar { width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; margin-top: 15px; overflow: hidden; display: none; }
         .progress-fill { height: 100%; background: #10b981; width: 0%; transition: width 0.2s; }
@@ -328,7 +342,93 @@
             b.innerText = `删除 (${state.selected.size})`; 
         }
 
-        // 上传 (带进度条)
+<script>
+        const rawData = {{MEME_DATA}}; 
+        let state = { filter: 'all', search: '', page: 1, pageSize: 20, selMode: false, selected: new Set(), items: [], editingFile: null };
+        let longPressTimer;
+
+        function init() { process(); render(); }
+        
+        // 数据处理
+        function process() {
+            let list = Object.entries(rawData).reverse();
+            if (state.filter !== 'all') list = list.filter(x => (x[1].source||'manual') === state.filter);
+            if (state.search) list = list.filter(x => (x[1].tags||"").includes(state.search));
+            state.items = list; state.page = 1; updatePage();
+        }
+
+        // 渲染画廊
+        function render() {
+            const el = document.getElementById('gallery'); el.innerHTML = '';
+            const start = (state.page - 1) * state.pageSize;
+            state.items.slice(start, start + state.pageSize).forEach(([fn, info]) => {
+                const sel = state.selected.has(fn);
+                const div = document.createElement('div');
+                div.className = `card ${sel ? 'selected' : ''}`;
+                
+                // 长按事件
+                div.addEventListener('touchstart', () => {
+                    longPressTimer = setTimeout(() => { enterSelectMode(fn); }, 600);
+                });
+                div.addEventListener('touchend', () => clearTimeout(longPressTimer));
+                div.addEventListener('touchmove', () => clearTimeout(longPressTimer));
+                
+                div.onclick = () => cardClick(fn);
+                
+                div.innerHTML = `
+                    <div class="badge ${info.source==='auto'?'badge-auto':'badge-manual'}">${info.source==='auto'?'机':'我'}</div>
+                    <div class="check-mark">✓</div>
+                    <img src="/images/${fn}" loading="lazy">
+                    <div class="card-body">
+                        <div class="tag-text">${info.tags||"未分类"}</div>
+                        <div class="source-tag">
+                            <span>${info.source==='auto'?'自动进货':'手动上传'}</span>
+                            <span style="margin-left:auto; font-size:1.1rem;" onclick="openEdit('${fn}', event)">✎</span>
+                        </div>
+                    </div>`;
+                el.appendChild(div);
+            });
+            updatePage(); updateBtn();
+        }
+        
+        // 交互逻辑
+        function enterSelectMode(fn) {
+            if (state.selMode) return;
+            state.selMode = true;
+            document.body.classList.add('selection-mode');
+            state.selected.add(fn);
+            if(navigator.vibrate) navigator.vibrate(50);
+            render();
+        }
+
+        function cardClick(fn) {
+            if (state.selMode) {
+                if (state.selected.has(fn)) state.selected.delete(fn); else state.selected.add(fn);
+                render();
+            } else window.open(`/images/${fn}`, '_blank');
+        }
+        
+        function exitSelectMode() {
+            state.selMode = false;
+            state.selected.clear();
+            document.body.classList.remove('selection-mode');
+            render();
+        }
+
+        function toggleSelectAll() {
+            const currentIds = state.items.map(x => x[0]);
+            const allSelected = currentIds.every(id => state.selected.has(id));
+            if (allSelected) state.selected.clear();
+            else currentIds.forEach(id => state.selected.add(id));
+            render();
+        }
+
+        function updateBtn() { 
+            const b = document.getElementById('batchDelBtn'); 
+            b.innerText = `删除 (${state.selected.size})`; 
+        }
+
+        // 上传逻辑 (带进度条)
         function toggleUpload() { document.getElementById('uploadDrawer').classList.toggle('show'); }
         function handleFileSelect() { const n = document.getElementById('fileInput').files.length; if(n) showToast(`已选择 ${n} 张图片`); }
         
@@ -359,54 +459,62 @@
             setTimeout(() => location.reload(), 800);
         }
 
-        // 通用函数
-        function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 2000); }
-        function setFilter(t, btn) { state.filter = t; document.querySelectorAll('.controls-scroll .btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); process(); render(); }
-        function handleSearch() { state.search = document.getElementById('searchInput').value; process(); render(); }
-        function changePage(d) { const max = Math.ceil(state.items.length/state.pageSize)||1; const n = state.page+d; if(n>=1 && n<=max) { state.page=n; render(); window.scrollTo(0,0); } }
-        function updatePage() { document.getElementById('pageInfo').innerText = `${state.page} / ${Math.ceil(state.items.length/state.pageSize)||1}`; document.getElementById('pagination').style.display = state.items.length ? 'flex' : 'none'; }
-        
-        // 编辑
-        function openEdit(fn, e) { e.stopPropagation(); state.editingFile = fn; document.getElementById('editTagInput').value = rawData[fn].tags; document.getElementById('editModal').style.display = 'flex'; }
-        function closeEdit() { document.getElementById('editModal').style.display = 'none'; }
-        async function confirmEdit() {
-            const tag = document.getElementById('editTagInput').value;
-            await fetch('/update_tag', {method:'POST', body:JSON.stringify({filename:state.editingFile, tags:tag})});
-            rawData[state.editingFile].tags = tag;
-            closeEdit(); showToast('标签已更新'); process(); render();
-        }
-        
-        // 删除
-        async function deleteBatch() {
-            if(!confirm(`确定删除选中的 ${state.selected.size} 张图片吗？`)) return;
-            await fetch('/batch_delete', {method:'POST', body:JSON.stringify({filenames:Array.from(state.selected)})});
-            state.selected.forEach(fn => delete rawData[fn]);
-            exitSelectMode(); process(); render(); showToast('删除成功');
-        }
-
-        // 备份恢复
+        // 备份逻辑
         function backupData() { window.open('/backup'); showToast('正在打包下载...'); }
-        async function handleRestore() {
+
+        // 恢复逻辑 (带进度条，使用 XMLHttpRequest)
+        function handleRestore() {
             const f = document.getElementById('restoreInput').files[0];
             if(!f) return;
             if(!confirm('恢复将覆盖现有的图片和配置，确定吗？')) return;
-            const fd = new FormData(); fd.append('file', f);
-            showToast('正在上传并恢复...');
-            try {
-                const res = await fetch('/restore', {method:'POST', body:fd});
-                if(res.ok) { alert('恢复成功，页面将刷新'); location.reload(); }
-                else alert('恢复失败');
-            } catch(e) { alert('上传出错'); }
+
+            const fd = new FormData();
+            fd.append('file', f);
+
+            // 借用 Toast 显示进度
+            const t = document.getElementById('toast');
+            t.classList.add('show');
+            t.innerText = '准备上传...';
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/restore', true);
+
+            // 监听上传进度
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    t.innerText = `正在上传备份: ${percent}%`;
+                }
+            };
+
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    t.innerText = '上传完成，正在解压...';
+                    setTimeout(() => {
+                        alert('恢复成功，页面将刷新');
+                        location.reload();
+                    }, 500);
+                } else {
+                    t.innerText = '恢复失败: ' + xhr.responseText;
+                    setTimeout(() => t.classList.remove('show'), 3000);
+                }
+            };
+
+            xhr.onerror = function() {
+                t.innerText = '网络错误';
+                setTimeout(() => t.classList.remove('show'), 3000);
+            };
+
+            xhr.send(fd);
         }
 
-        // 配置相关完整逻辑
+        // 配置逻辑 (完整版)
         function switchTab(id, el) {
             document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); el.classList.add('active');
             document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active')); document.getElementById(id).classList.add('active');
         }
         
         async function openSettings() {
-            // 获取当前配置回显
             const c = await (await fetch('/get_config')).json();
             ['reply_prob','auto_save_cooldown','debounce_time','delay_base','delay_factor'].forEach(k => {
                 if(document.getElementById(`conf_${k}`)) document.getElementById(`conf_${k}`).value = c[k]??0;
@@ -424,7 +532,31 @@
             await fetch('/update_config', {method:'POST', body:JSON.stringify(conf)});
             closeSettings(); showToast('配置已保存');
         }
+
+        // 基础功能
+        function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 2000); }
+        function setFilter(t, btn) { state.filter = t; document.querySelectorAll('.controls-scroll .btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); process(); render(); }
+        function handleSearch() { state.search = document.getElementById('searchInput').value; process(); render(); }
+        function changePage(d) { const max = Math.ceil(state.items.length/state.pageSize)||1; const n = state.page+d; if(n>=1 && n<=max) { state.page=n; render(); window.scrollTo(0,0); } }
+        function updatePage() { document.getElementById('pageInfo').innerText = `${state.page} / ${Math.ceil(state.items.length/state.pageSize)||1}`; document.getElementById('pagination').style.display = state.items.length ? 'flex' : 'none'; }
         
+        // 编辑与删除
+        function openEdit(fn, e) { e.stopPropagation(); state.editingFile = fn; document.getElementById('editTagInput').value = rawData[fn].tags; document.getElementById('editModal').style.display = 'flex'; }
+        function closeEdit() { document.getElementById('editModal').style.display = 'none'; }
+        async function confirmEdit() {
+            const tag = document.getElementById('editTagInput').value;
+            await fetch('/update_tag', {method:'POST', body:JSON.stringify({filename:state.editingFile, tags:tag})});
+            rawData[state.editingFile].tags = tag;
+            closeEdit(); showToast('标签已更新'); process(); render();
+        }
+        
+        async function deleteBatch() {
+            if(!confirm(`确定删除选中的 ${state.selected.size} 张图片吗？`)) return;
+            await fetch('/batch_delete', {method:'POST', body:JSON.stringify({filenames:Array.from(state.selected)})});
+            state.selected.forEach(fn => delete rawData[fn]);
+            exitSelectMode(); process(); render(); showToast('删除成功');
+        }
+
         init();
     </script>
 </body>
