@@ -224,7 +224,7 @@
         </div>
     </div>
     
-    <!-- 配置弹窗 (完整) -->
+    <!-- 配置弹窗 -->
     <div class="modal-overlay" id="settingsModal">
         <div class="modal">
             <h3 style="margin:0 0 20px 0; color:#1e293b;">配置中心</h3>
@@ -235,7 +235,9 @@
 
             <div id="tab-meme" class="tab-content active">
                 <div class="form-group"><label>发图概率 (%)</label><input type="number" id="conf_reply_prob"><div class="hint">每句话带图的可能性</div></div>
-                <div class="form-group"><label>存图冷却 (秒)</label><input type="number" id="conf_auto_save_cooldown"><div class="hint">防止疯狂捡垃圾</div></div>
+                <div class="form-group"><label>存图冷却 (秒)</label><input type="number" id="conf_auto_save_cooldown"><div class="hint">防止机疯狂捡垃圾</div></div>
+                <!-- 瘦身按钮 -->
+                <button class="btn" style="width:100%; border:1px dashed #f59e0b; color:#d97706; margin-top:10px;" onclick="slimImages()">⚡ 一键压缩旧图 (瘦身)</button>
             </div>
 
             <div id="tab-logic" class="tab-content">
@@ -430,6 +432,15 @@
             });
             await fetch('/update_config', {method:'POST', body:JSON.stringify(conf)});
             closeSettings(); showToast('配置已保存');
+        }
+
+        async function slimImages() {
+            if(!confirm('这会扫描所有图片并压缩过大的文件，可能需要几秒钟，确定吗？')) return;
+            showToast('正在处理，请稍候...');
+            try {
+                const res = await (await fetch('/slim_images', {method:'POST'})).text();
+                alert(res);
+            } catch(e) { alert('处理失败'); }
         }
 
         function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 2000); }
