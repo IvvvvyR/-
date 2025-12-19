@@ -8,7 +8,7 @@ import aiohttp
 import difflib
 import zipfile
 import io
-from concurrent.futures import ThreadPoolExecutor # 引入线程池
+from concurrent.futures import ThreadPoolExecutor
 from aiohttp import web
 
 from PIL import Image as PILImage
@@ -18,9 +18,9 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import EventMessageType
 from astrbot.core.message.components import Image, Plain
 
-print("DEBUG: MemeMaster Pro (v1.3.0 Restore) 已加载")
+print("DEBUG: MemeMaster Pro (v1.4.0 Fingerprint) 已加载")
 
-@register("vv_meme_master", "MemeMaster", "防抖+表情包+拟人分段", "1.3.0")
+@register("vv_meme_master", "MemeMaster", "防抖+表情包+去重指纹", "1.4.0")
 class MemeMaster(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -29,7 +29,6 @@ class MemeMaster(Star):
         self.data_file = os.path.join(self.base_dir, "memes.json")
         self.config_file = os.path.join(self.base_dir, "config.json")
         
-        # 线程池：专门处理图片压缩，防止卡死
         self.executor = ThreadPoolExecutor(max_workers=3)
         
         if not os.path.exists(self.img_dir): os.makedirs(self.img_dir, exist_ok=True)
@@ -37,33 +36,103 @@ class MemeMaster(Star):
         self.local_config = self.load_config()
         self.data = self.load_data()
         
+        # 指纹缓存库 {filename: dhash_string}
+        self.img_hashes = {} 
+        
         self.sessions = {}
         self.pair_map = {'“': '”', '《': '》', '（': '）', '(': ')', '[': ']', '{': '}'}
 
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(self.start_web_server())
+            # 启动时后台建立指纹库
+            loop.create_task(self._init_image_hashes())
         except Exception as e:
-            print(f"ERROR: Web后台启动失败: {e}")
+            print(f"ERROR: 启动任务失败: {e}")
 
     # ==========================
-    # 工具：图片下载与压缩 (新版逻辑)
+    # 核心功能：视觉指纹 (dHash)
+    # ==========================
+    async def _init_image_hashes(self):
+        """后台任务：计算现有图片的指纹"""
+        print("[Meme] 正在建立图片指纹库 (去重用)...")
+        count = 0
+        loop = asyncio.get_running_loop()
+        files = os.listdir(self.img_dir)
+        
+        for f in files:
+            # 简单过滤非图片
+            if not f.lower().endswith(('.jpg', '.png', '.jpeg', '.gif', '.webp')): continue
+            
+            path = os.path.join(self.img_dir, f)
+            try:
+                with open(path, "rb") as file:
+                    data = file.read()
+                # 扔到线程池计算，防止卡顿
+                h = await loop.run_in_executor(self.executor, self.calc_dhash, data)
+                if h: self.img_hashes[f] = h
+                count += 1
+            except: pass
+            
+        print(f"[Meme] 指纹库建立完成，共索引 {count} 张图片")
+
+    def calc_dhash(self, image_data: bytes) -> str:
+        """计算图片的差异哈希 (dHash)"""
+        try:
+            # 1. 打开图片
+            if isinstance(image_data, bytes):
+                img = PILImage.open(io.BytesIO(image_data))
+            else:
+                return None
+                
+            # 2. 缩放到 9x8 并转灰度
+            img = img.resize((9, 8), PILImage.Resampling.LANCZOS).convert('L')
+            
+            # 3. 计算差异
+            pixels = list(img.getdata())
+            diff = []
+            for row in range(8):
+                for col in range(8):
+                    idx = row * 9 + col
+                    # 如果左边像素比右边亮，记为1，否则0
+                    diff.append(pixels[idx] > pixels[idx + 1])
+            
+            # 4. 转十六进制字符串
+            decimal_value = 0
+            for index, value in enumerate(diff):
+                if value: decimal_value += 2**index
+            return hex(decimal_value)[2:]
+            
+        except Exception:
+            return None
+
+    def is_duplicate(self, new_hash: str, threshold=5) -> bool:
+        """检查是否存在相似图片 (汉明距离 < 阈值)"""
+        if not new_hash: return False
+        
+        for filename, existing_hash in self.img_hashes.items():
+            # 计算汉明距离
+            try:
+                dist = bin(int(new_hash, 16) ^ int(existing_hash, 16)).count('1')
+                if dist <= threshold:
+                    # print(f"[Meme] 发现重复: 与 {filename} 相似度高 (dist={dist})")
+                    return True
+            except: continue
+        return False
+
+    # ==========================
+    # 工具：图片下载与压缩
     # ==========================
     def compress_image_sync(self, image_data: bytes) -> tuple[bytes, str]:
-        """ 同步压缩函数，将在线程池中运行 """
         try:
             img = PILImage.open(io.BytesIO(image_data))
-            
-            # 尺寸限制 350px (表情包标准)
             max_size = 350 
             w, h = img.size
             if w > max_size or h > max_size:
                 if w > h:
-                    new_w = max_size
-                    new_h = int(h * (max_size / w))
+                    new_w = max_size; new_h = int(h * (max_size / w))
                 else:
-                    new_h = max_size
-                    new_w = int(w * (max_size / h))
+                    new_h = max_size; new_w = int(w * (max_size / h))
                 img = img.resize((new_w, new_h), PILImage.Resampling.LANCZOS)
             
             buffer = io.BytesIO()
@@ -73,10 +142,9 @@ class MemeMaster(Star):
                 return buffer.getvalue(), ".png"
             else:
                 if img.mode != "RGB": img = img.convert("RGB")
-                img.save(buffer, format="JPEG", quality=70, optimize=True) # 质量70
+                img.save(buffer, format="JPEG", quality=70, optimize=True)
                 return buffer.getvalue(), ".jpg"
         except Exception as e:
-            print(f"图片压缩失败: {e}")
             return image_data, ".jpg"
 
     async def download_image(self, url):
@@ -89,7 +157,7 @@ class MemeMaster(Star):
         except: return None
 
     # ==========================
-    # 核心 1: 输入端防抖 (回归旧版逻辑)
+    # 核心 1: 输入端防抖
     # ==========================
     async def _timer_coroutine(self, uid: str, duration: float):
         try:
@@ -99,7 +167,6 @@ class MemeMaster(Star):
 
     @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE, priority=50)
     async def handle_private_msg(self, event: AstrMessageEvent):
-        # 1. 过滤自己
         try:
             sender_id = str(event.message_obj.sender.user_id)
             bot_self_id = str(self.context.get_current_provider_bot().self_id)
@@ -111,15 +178,14 @@ class MemeMaster(Star):
             img_url = self._get_img_url(event)
             uid = event.unified_msg_origin
 
-            # 过滤无效空包 (防止输入状态插件刷屏)
             if not msg_str and not img_url: return
 
-            # 暗线：自动进货 (保持不变)
+            # 暗线：自动进货 (逻辑优化：先判断指纹，再问AI)
             if img_url and not msg_str and not msg_str.startswith("/"):
                 cooldown = self.local_config.get("auto_save_cooldown", 60)
                 last_save = getattr(self, "last_auto_save_time", 0)
                 if time.time() - last_save > cooldown:
-                    print(f"[Meme] 暗线启动：正在后台鉴定图片...")
+                    print(f"[Meme] 收到图片，准备后台鉴定...")
                     asyncio.create_task(self.ai_evaluate_image(img_url))
 
             # 指令穿透
@@ -129,51 +195,41 @@ class MemeMaster(Star):
                     self.sessions[uid]['flush_event'].set()
                 return
 
-            # 防抖逻辑配置
             debounce_time = self.local_config.get("debounce_time", 2.0)
             if debounce_time <= 0: return
 
-            # --- 关键分支：旧版逻辑 ---
-            # 情况 A: 已经有防抖会话 -> 存入队列，重置计时器，【拦截】
+            # A. 续杯
             if uid in self.sessions:
                 s = self.sessions[uid]
-                # 这里把消息按顺序存入 queue，而不是分开存 buffer 和 images
                 if msg_str: s['queue'].append({'type':'text', 'content':msg_str})
                 if img_url: s['queue'].append({'type':'image', 'url':img_url})
-                
                 if s.get('timer_task'): s['timer_task'].cancel()
                 s['timer_task'] = asyncio.create_task(self._timer_coroutine(uid, debounce_time))
-                
-                event.stop_event() # 拦截后续消息
+                event.stop_event()
                 return
 
-            # 情况 B: 新会话 -> 创建队列，开启计时器，【等待】(不拦截第一条)
+            # B. 新杯
             flush_event = asyncio.Event()
             timer_task = asyncio.create_task(self._timer_coroutine(uid, debounce_time))
-            
             initial_queue = []
             if msg_str: initial_queue.append({'type':'text', 'content':msg_str})
             if img_url: initial_queue.append({'type':'image', 'url':img_url})
 
             self.sessions[uid] = {
-                'queue': initial_queue,
-                'flush_event': flush_event,
-                'timer_task': timer_task
+                'queue': initial_queue, 'flush_event': flush_event, 'timer_task': timer_task
             }
             
-            print(f"[Meme] 收到首条消息，开始防抖 ({debounce_time}s)...")
-            await flush_event.wait() # 这里的 wait 会暂停第一条消息的处理流程
+            print(f"[Meme] 开始防抖 ({debounce_time}s)...")
+            await flush_event.wait() 
 
-            # --- 结算阶段 (Wait 结束) ---
+            # C. 结算
             if uid not in self.sessions: return
             s = self.sessions.pop(uid)
             queue = s['queue']
-            
             if not queue: return
 
             print(f"[Meme] 防抖结束，处理 {len(queue)} 个片段...")
 
-            # 构建最终发给 LLM 的消息链
             new_chain = []
             full_text_buffer = []
             loop = asyncio.get_running_loop()
@@ -183,36 +239,28 @@ class MemeMaster(Star):
                     new_chain.append(Plain(item['content']))
                     full_text_buffer.append(item['content'])
                 elif item['type'] == 'image':
-                    # 【新功能】下载并压缩图片
                     img_data = await self.download_image(item['url'])
                     if img_data:
-                        # 线程池压缩
                         comp_data, _ = await loop.run_in_executor(self.executor, self.compress_image_sync, img_data)
                         new_chain.append(Image.fromBytes(comp_data))
 
-            # 注入小抄
             merged_text = "\n".join(full_text_buffer)
             if merged_text and random.randint(1, 100) <= self.local_config.get("reply_prob", 50):
                 all_tags = [i.get("tags") for i in self.data.values()]
                 if all_tags:
                     hint_tags = "、".join(random.sample(all_tags, min(20, len(all_tags))))
                     merged_text += f"\n\n[System]\nAvailable Memes: {hint_tags}\nTo use, reply: MEME_TAG:tag_name"
-                    # 这里不需要 append 到 new_chain，因为 message_str 会被 LLM 看到，chain 给 LLM 看有时候没用
 
-            # 修改当前这条（第一条）消息的内容，让它携带所有后续消息的 payload 继续传播
             event.message_str = merged_text
             event.message_obj.message = new_chain
-            
             print(f"[Meme] 放行消息给LLM: {merged_text[:30]}...")
-            
-            # 注意：这里不需要 event.is_prevented = False，因为我们从未对第一条消息调用 stop_event
             
         except Exception as e:
             print(f"ERROR inside handler: {e}")
             return
 
     # ==========================
-    # 核心 2: 输出端 (正则 + 分段)
+    # 核心 2: 输出端
     # ==========================
     @filter.on_decorating_result(priority=0)
     async def on_decorate(self, event: AstrMessageEvent):
@@ -246,42 +294,50 @@ class MemeMaster(Star):
                     if path: 
                         print(f"🎯 命中图片: {tag}")
                         mixed_chain.append(Image.fromFileSystem(path))
-                    else:
-                        pass 
+                    else: pass 
                 elif part:
                     mixed_chain.append(Plain(part))
             
-            # 【分段逻辑】只要有内容就进分段，不再判断长度
             segments = self.smart_split(mixed_chain)
-            print(f"[Meme] 分段: {len(segments)} 段")
             
             delay_base = self.local_config.get("delay_base", 0.5)
             delay_factor = self.local_config.get("delay_factor", 0.1)
             
             for i, seg in enumerate(segments):
                 txt_content = "".join([c.text for c in seg if isinstance(c, Plain)])
-                # 拟人延迟
                 wait = delay_base + (len(txt_content) * delay_factor)
                 
                 mc = MessageChain()
                 mc.chain = seg
                 await self.context.send_message(event.unified_msg_origin, mc)
                 
-                if i < len(segments) - 1:
-                    await asyncio.sleep(wait)
+                if i < len(segments) - 1: await asyncio.sleep(wait)
             
-            # 阻止框架默认发送，防止重复
             event.set_result(None)
 
         except Exception as e:
             print(f"分段发送出错: {e}")
 
     # ==========================
-    # 核心 3: 自动进货 (保持不变)
+    # 核心 3: 自动进货 (加入去重)
     # ==========================
     async def ai_evaluate_image(self, img_url):
         try:
             self.last_auto_save_time = time.time()
+            
+            # 1. 先下载原图
+            img_data = await self.download_image(img_url)
+            if not img_data: return
+
+            # 2. 计算指纹并去重
+            loop = asyncio.get_running_loop()
+            current_hash = await loop.run_in_executor(self.executor, self.calc_dhash, img_data)
+            
+            if current_hash and self.is_duplicate(current_hash):
+                print(f"💛 [自动进货] 图片已存在 (指纹匹配)，跳过")
+                return # 直接结束，不问AI
+
+            # 3. 询问 AI
             provider = self.context.get_using_provider()
             if not provider: return
             
@@ -297,6 +353,9 @@ class MemeMaster(Star):
 YES
 <名称>:<一句自然语言解释这个表情包在什么语境下使用>"""
 
+            # 既然已经下载了，其实可以直接传 URL 比较快（节省上传带宽）
+            # 或者如果 Provider 支持 base64 也可以传 img_data
+            # 为了兼容性，我们还是传 URL 给 AI
             resp = await provider.text_chat(prompt, session_id=None, image_urls=[img_url])
             content = (getattr(resp, "completion_text", None) or getattr(resp, "text", "")).strip()
             
@@ -309,61 +368,19 @@ YES
                     full_tag = f"{tag}: {desc}"
                     print(f"🖤 [自动进货] {full_tag}")
                     
-                    loop = asyncio.get_running_loop()
-                    img_data = await self.download_image(img_url)
-                    if img_data:
-                        # 线程池压缩
-                        comp_data, ext = await loop.run_in_executor(self.executor, self.compress_image_sync, img_data)
-                        fn = f"{int(time.time())}{ext}"
-                        with open(os.path.join(self.img_dir, fn), "wb") as f: f.write(comp_data)
-                        self.data[fn] = {"tags": full_tag, "source": "auto"}
-                        self.save_data()
+                    # 4. 保存
+                    comp_data, ext = await loop.run_in_executor(self.executor, self.compress_image_sync, img_data)
+                    fn = f"{int(time.time())}{ext}"
+                    with open(os.path.join(self.img_dir, fn), "wb") as f: f.write(comp_data)
+                    
+                    self.data[fn] = {"tags": full_tag, "source": "auto"}
+                    if current_hash: self.img_hashes[fn] = current_hash # 更新内存指纹库
+                    self.save_data()
         except Exception as e:
             print(f"鉴图出错: {e}")
 
     # ==========================
-    # 辅助工具
-    # ==========================
-    def smart_split(self, chain):
-        segs = []; buf = []
-        def flush():
-            if buf: segs.append(buf[:]); buf.clear()
-        for c in chain:
-            if isinstance(c, Image):
-                flush(); segs.append([c]); continue
-            if isinstance(c, Plain):
-                txt = c.text; idx = 0; chunk = ""; stack = []
-                while idx < len(txt):
-                    char = txt[idx]
-                    if char in self.pair_map: stack.append(char)
-                    elif stack and char == self.pair_map[stack[-1]]: stack.pop()
-                    if not stack and char in "\n。？！?!":
-                        chunk += char
-                        if chunk.strip(): buf.append(Plain(chunk))
-                        flush(); chunk = ""
-                    else: chunk += char
-                    idx += 1
-                if chunk: buf.append(Plain(chunk))
-        flush()
-        return segs
-
-    def find_best_match(self, query):
-        best, score = None, 0
-        for f, i in self.data.items():
-            t = i.get("tags", "")
-            if query in t: return os.path.join(self.img_dir, f)
-            s = difflib.SequenceMatcher(None, query, t).ratio()
-            if s > score: score = s; best = f
-        if score > 0.4: return os.path.join(self.img_dir, best)
-        return None
-
-    def _get_img_url(self, e):
-        for c in e.message_obj.message:
-            if isinstance(c, Image): return c.url
-        return None
-
-    # ==========================
-    # Web Server (保持不变)
+    # Web Server & Helpers
     # ==========================
     async def start_web_server(self):
         app = web.Application()
@@ -393,34 +410,49 @@ YES
             if p.name == "file":
                 raw_data = await p.read()
                 loop = asyncio.get_running_loop()
+                # 上传时也计算 hash
+                current_hash = await loop.run_in_executor(self.executor, self.calc_dhash, raw_data)
+                
+                # 可选：上传时也去重？目前先不限制手动上传
                 compressed_data, ext = await loop.run_in_executor(self.executor, self.compress_image_sync, raw_data)
                 fn = f"{int(time.time()*1000)}_{random.randint(100,999)}{ext}"
                 with open(os.path.join(self.img_dir, fn), "wb") as f: f.write(compressed_data)
                 self.data[fn] = {"tags": tag, "source": "manual"}
+                if current_hash: self.img_hashes[fn] = current_hash
             elif p.name == "tags": tag = await p.text()
         self.save_data(); return web.Response(text="ok")
     
     async def h_slim(self, r):
         count = 0; total_saved = 0
         loop = asyncio.get_running_loop()
-        print("[Meme] 开始批量瘦身...")
+        print("[Meme] 开始批量瘦身 & 重建指纹...")
+        self.img_hashes = {} # 清空重算
         for f in os.listdir(self.img_dir):
             path = os.path.join(self.img_dir, f)
             try:
                 with open(path, 'rb') as file: raw = file.read()
                 old_size = len(raw)
+                
+                # 重建指纹
+                h = await loop.run_in_executor(self.executor, self.calc_dhash, raw)
+                if h: self.img_hashes[f] = h
+
+                # 压缩
                 new_data, ext = await loop.run_in_executor(self.executor, self.compress_image_sync, raw)
                 if len(new_data) < old_size:
                     with open(path, 'wb') as file: file.write(new_data)
                     count += 1; total_saved += (old_size - len(new_data))
             except: pass
-        msg = f"已优化 {count} 张图片，节省 {(total_saved/1024/1024):.2f} MB"
+        msg = f"已优化 {count} 张图片，指纹库已刷新"
         print(f"[Meme] {msg}")
         return web.Response(text=msg)
 
     async def h_del(self,r):
         for f in (await r.json()).get("filenames",[]):
-            try: os.remove(os.path.join(self.img_dir, f)); del self.data[f]
+            try: 
+                os.remove(os.path.join(self.img_dir, f))
+                del self.data[f]
+                if f in self.img_hashes: del self.img_hashes[f]
             except: pass
         self.save_data(); return web.Response(text="ok")
     async def h_tag(self,r): d=await r.json(); self.data[d['filename']]['tags']=d['tags']; self.save_data(); return web.Response(text="ok")
@@ -447,11 +479,47 @@ YES
         try:
             with zipfile.ZipFile(buffer, 'r') as z: z.extractall(self.base_dir)
             self.data = self.load_data(); self.local_config = self.load_config()
+            # 恢复后必须重建指纹
+            asyncio.create_task(self._init_image_hashes())
             return web.Response(text="ok")
         except Exception as e: return web.Response(status=500, text=str(e))
 
     def read_file(self, n): 
         with open(os.path.join(self.base_dir, n), "r", encoding="utf-8") as f: return f.read()
+    def smart_split(self, chain):
+        segs = []; buf = []
+        def flush():
+            if buf: segs.append(buf[:]); buf.clear()
+        for c in chain:
+            if isinstance(c, Image): flush(); segs.append([c]); continue
+            if isinstance(c, Plain):
+                txt = c.text; idx = 0; chunk = ""; stack = []
+                while idx < len(txt):
+                    char = txt[idx]
+                    if char in self.pair_map: stack.append(char)
+                    elif stack and char == self.pair_map[stack[-1]]: stack.pop()
+                    if not stack and char in "\n。？！?!":
+                        chunk += char
+                        if chunk.strip(): buf.append(Plain(chunk))
+                        flush(); chunk = ""
+                    else: chunk += char
+                    idx += 1
+                if chunk: buf.append(Plain(chunk))
+        flush()
+        return segs
+    def find_best_match(self, query):
+        best, score = None, 0
+        for f, i in self.data.items():
+            t = i.get("tags", "")
+            if query in t: return os.path.join(self.img_dir, f)
+            s = difflib.SequenceMatcher(None, query, t).ratio()
+            if s > score: score = s; best = f
+        if score > 0.4: return os.path.join(self.img_dir, best)
+        return None
+    def _get_img_url(self, e):
+        for c in e.message_obj.message:
+            if isinstance(c, Image): return c.url
+        return None
     def load_config(self): return {**{"web_port":5000,"debounce_time":2.0,"reply_prob":50}, **(json.load(open(self.config_file)) if os.path.exists(self.config_file) else {})}
     def save_config(self): json.dump(self.local_config, open(self.config_file,"w"), indent=2)
     def load_data(self): return json.load(open(self.data_file)) if os.path.exists(self.data_file) else {}
