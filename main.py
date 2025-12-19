@@ -10,7 +10,6 @@ import zipfile
 import io
 from aiohttp import web
 
-# 引入图片处理库
 from PIL import Image as PILImage
 
 from astrbot.api.star import Context, Star, register
@@ -18,9 +17,9 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import EventMessageType
 from astrbot.core.message.components import Image, Plain
 
-print("DEBUG: MemeMaster Pro (Sticker Optimized) 已加载")
+print("DEBUG: MemeMaster Pro (Final Fix) 已加载")
 
-@register("vv_meme_master", "MemeMaster", "防抖+表情包+拟人分段", "1.0.5")
+@register("vv_meme_master", "MemeMaster", "防抖+表情包+拟人分段", "1.0.6")
 class MemeMaster(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -44,19 +43,11 @@ class MemeMaster(Star):
             print(f"ERROR: Web后台启动失败: {e}")
 
     # ==========================
-    # 图片压缩与处理 (优化表情包体验)
+    # 图片压缩与处理
     # ==========================
     def compress_image(self, image_data: bytes) -> tuple[bytes, str]:
-        """
-        智能压缩：
-        1. 保持透明背景（贴纸感的关键）
-        2. 限制尺寸在 800px 以内（防止图片太大）
-        3. 返回处理后的二进制数据和文件后缀
-        """
         try:
             img = PILImage.open(io.BytesIO(image_data))
-            
-            # 1. 尺寸调整 (限制最大宽度 800，表情包的最佳尺寸)
             max_width = 800
             if img.width > max_width:
                 ratio = max_width / img.width
@@ -64,22 +55,15 @@ class MemeMaster(Star):
                 img = img.resize((max_width, new_height), PILImage.Resampling.LANCZOS)
             
             buffer = io.BytesIO()
-            
-            # 2. 智能格式选择
-            # 如果有透明通道 (RGBA) 或 P模式(可能带透明)，保存为 PNG 以保留"贴纸"效果
             if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
                 img.save(buffer, format="PNG", optimize=True)
                 return buffer.getvalue(), ".png"
             else:
-                # 否则转换为 RGB 并存为 JPG (省空间)
-                if img.mode != "RGB":
-                    img = img.convert("RGB")
+                if img.mode != "RGB": img = img.convert("RGB")
                 img.save(buffer, format="JPEG", quality=80, optimize=True)
                 return buffer.getvalue(), ".jpg"
-                
         except Exception as e:
             print(f"图片处理失败: {e}，将保存原图")
-            # 默认给个 jpg 后缀，虽然不一定对，但能跑
             return image_data, ".jpg" 
 
     # ==========================
@@ -93,7 +77,6 @@ class MemeMaster(Star):
 
     @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE, priority=50)
     async def handle_private_msg(self, event: AstrMessageEvent):
-        # 1. 死循环熔断
         try:
             sender_id = str(event.message_obj.sender.user_id)
             bot_self_id = str(self.context.get_current_provider_bot().self_id)
@@ -105,7 +88,7 @@ class MemeMaster(Star):
             img_url = self._get_img_url(event)
             uid = event.unified_msg_origin
 
-            # 2. 暗线：自动进货 (后台并行)
+            # 暗线：自动进货
             if img_url and not msg_str and not msg_str.startswith("/"):
                 cooldown = self.local_config.get("auto_save_cooldown", 60)
                 last_save = getattr(self, "last_auto_save_time", 0)
@@ -113,14 +96,14 @@ class MemeMaster(Star):
                     print(f"[Meme] 暗线启动：正在后台鉴定图片...")
                     asyncio.create_task(self.ai_evaluate_image(img_url))
 
-            # 3. 指令穿透
+            # 指令穿透
             if msg_str.startswith("/") or msg_str.startswith("！") or msg_str.startswith("!"):
                 if uid in self.sessions:
                     if self.sessions[uid].get('timer_task'): self.sessions[uid]['timer_task'].cancel()
                     self.sessions[uid]['flush_event'].set()
                 return
 
-            # 4. 防抖逻辑
+            # 防抖逻辑
             debounce_time = self.local_config.get("debounce_time", 2.0)
             if debounce_time <= 0: return
 
@@ -141,13 +124,18 @@ class MemeMaster(Star):
                 'flush_event': flush_event,
                 'timer_task': timer_task
             }
+            # Log: 开始防抖
+            # print(f"[Meme] 收到消息，开始防抖 ({debounce_time}s)...")
             await flush_event.wait()
 
-            # 场景 C: 结算 (放行给LLM聊天)
+            # 结算
             if uid not in self.sessions: return
             s = self.sessions.pop(uid)
             merged_text = "\n".join(s['buffer']).strip()
             
+            # Log: 防抖结束
+            print(f"[Meme] 防抖结算: {len(s['buffer'])} 条文本, {len(s['images'])} 张图 -> 发送给LLM")
+
             if not merged_text and not s['images']: return
 
             # 注入小抄
@@ -159,11 +147,8 @@ class MemeMaster(Star):
 
             # 图片透传
             new_chain = []
-            if merged_text:
-                new_chain.append(Plain(merged_text))
-            
-            for url in s['images']:
-                new_chain.append(Image.fromURL(url))
+            if merged_text: new_chain.append(Plain(merged_text))
+            for url in s['images']: new_chain.append(Image.fromURL(url))
             
             event.message_str = merged_text
             event.message_obj.message = new_chain
@@ -173,7 +158,7 @@ class MemeMaster(Star):
             return
 
     # ==========================
-    # 核心 2: 输出端
+    # 核心 2: 输出端 (正则修复 + 日志增强)
     # ==========================
     @filter.on_decorating_result(priority=0)
     async def on_decorate(self, event: AstrMessageEvent):
@@ -194,14 +179,20 @@ class MemeMaster(Star):
         if not text: return
         setattr(event, "__processed", True)
         
+        # Log: AI 原始回复
+        print(f"[Meme] AI原始回复: {text[:50]}..." if len(text) > 50 else f"[Meme] AI原始回复: {text}")
+
         try:
-            parts = re.split(r"(MEME_TAG:[\w\u4e00-\u9fa5]+)", text)
+            # 修复正则：匹配 MEME_TAG: 及其后的所有非空白字符（包括中文冒号、斜杠等）
+            # \s* 允许 MEME_TAG: 后有空格
+            # [\S]+ 匹配所有非空白字符
+            parts = re.split(r"(MEME_TAG:\s*[\S]+)", text)
             
             mixed_chain = []
             has_tag = False
             
             for part in parts:
-                if part.startswith("MEME_TAG:"):
+                if "MEME_TAG:" in part:
                     tag = part.replace("MEME_TAG:", "").strip()
                     path = self.find_best_match(tag)
                     if path: 
@@ -209,6 +200,8 @@ class MemeMaster(Star):
                         mixed_chain.append(Image.fromFileSystem(path))
                         has_tag = True
                     else:
+                        print(f"⚠️ 未找到图片: {tag}")
+                        # 找不到图，选择忽略，保持对话流畅
                         pass 
                 elif part:
                     mixed_chain.append(Plain(part))
@@ -217,19 +210,31 @@ class MemeMaster(Star):
                 return 
 
             segments = self.smart_split(mixed_chain)
+            print(f"[Meme] 智能分段: 共 {len(segments)} 段")
             
             delay_base = self.local_config.get("delay_base", 0.5)
             delay_factor = self.local_config.get("delay_factor", 0.1)
             
             for i, seg in enumerate(segments):
-                txt_len = sum(len(c.text) for c in seg if isinstance(c, Plain))
+                txt_content = "".join([c.text for c in seg if isinstance(c, Plain)])
+                img_count = sum(1 for c in seg if isinstance(c, Image))
+                
+                # 计算延迟
+                txt_len = len(txt_content)
                 wait = delay_base + (txt_len * delay_factor)
                 
+                # Log: 发送内容
+                log_msg = txt_content
+                if img_count > 0: log_msg += f" [图片*{img_count}]"
+                print(f"--> 发送 (段 {i+1}): {log_msg}")
+
                 mc = MessageChain()
                 mc.chain = seg
                 await self.context.send_message(event.unified_msg_origin, mc)
                 
-                if i < len(segments) - 1: await asyncio.sleep(wait)
+                if i < len(segments) - 1:
+                    # print(f"... 拟人延迟 {wait:.1f}s ...")
+                    await asyncio.sleep(wait)
             
             event.set_result(None)
 
@@ -237,7 +242,7 @@ class MemeMaster(Star):
             print(f"分段发送出错: {e}")
 
     # ==========================
-    # 核心 3: 暗线 - 自动进货 (含压缩)
+    # 核心 3: 暗线 - 自动进货
     # ==========================
     async def ai_evaluate_image(self, img_url):
         try:
@@ -245,7 +250,6 @@ class MemeMaster(Star):
             provider = self.context.get_using_provider()
             if not provider: return
             
-            # 这里是你的三引号 prompt，保持不变
             prompt = """你正在帮我整理一个 QQ 表情包素材库。
 请判断这张图片是否“值得被保存”，
 作为未来聊天中可能会使用的表情包素材。
@@ -320,7 +324,7 @@ YES
         return None
 
     # ==========================
-    # Web Server (应用智能压缩)
+    # Web Server
     # ==========================
     async def start_web_server(self):
         app = web.Application()
@@ -342,7 +346,6 @@ YES
 
     async def h_idx(self,r): return web.Response(text=self.read_file("index.html").replace("{{MEME_DATA}}", json.dumps(self.data)), content_type="text/html")
     
-    # 上传处理器 (应用智能压缩)
     async def h_up(self,r):
         rd = await r.multipart(); tag="未分类"
         while True:
@@ -350,13 +353,10 @@ YES
             if not p: break
             if p.name == "file":
                 raw_data = await p.read()
-                # 智能压缩
                 compressed_data, ext = self.compress_image(raw_data)
-                
                 fn = f"{int(time.time()*1000)}_{random.randint(100,999)}{ext}"
                 with open(os.path.join(self.img_dir, fn), "wb") as f: 
                     f.write(compressed_data)
-                    
                 self.data[fn] = {"tags": tag, "source": "manual"}
             elif p.name == "tags": tag = await p.text()
         self.save_data(); return web.Response(text="ok")
@@ -400,14 +400,11 @@ YES
     def read_file(self, n): 
         with open(os.path.join(self.base_dir, n), "r", encoding="utf-8") as f: return f.read()
     
-    # 自动进货保存 (应用智能压缩)
     async def _save_img(self, url, tag, src):
         async with aiohttp.ClientSession() as s:
             async with s.get(url) as r:
                 raw_data = await r.read()
-                # 智能压缩
                 compressed_data, ext = self.compress_image(raw_data)
-                
                 fn = f"{int(time.time())}{ext}"
                 with open(os.path.join(self.img_dir, fn), "wb") as f: 
                     f.write(compressed_data)
