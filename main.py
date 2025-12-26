@@ -308,7 +308,13 @@ class MemeMaster(Star):
             if not provider: return
 
             now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-            prompt = f"时间:{now_str}。请将这段对话总结为简练的日记/记忆(200字内)，保留关键信息和偏好，忽略无意义寒暄。\n{history_text}"
+            prompt = f"""当前时间：{now_str}
+                这是一段过去的对话记录。请将其总结为一段简练的“长期记忆”或“日记”。
+                重点记录：用户的喜好、发生的重要事件、双方约定的事情。
+                忽略：无意义的寒暄、重复的表情包指令。
+                字数限制：200字以内。
+                对话内容：
+                {history_text}"""
 
             resp = await provider.text_chat(prompt, session_id=None)
             summary = (getattr(resp, "completion_text", None) or getattr(resp, "text", "")).strip()
