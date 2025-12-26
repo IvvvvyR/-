@@ -29,9 +29,9 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import EventMessageType
 from astrbot.core.message.components import Image, Plain
 
-print("DEBUG: MemeMaster Pro (全功能修复版) 正在启动...")
+print("DEBUG: MemeMaster Pro (全功能修复版V2) 正在启动...")
 
-@register("vv_meme_master", "MemeMaster", "全功能修复版", "3.5.0")
+@register("vv_meme_master", "MemeMaster", "全功能修复版V2", "3.6.0")
 class MemeMaster(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -44,6 +44,7 @@ class MemeMaster(Star):
         
         # 线程池：保护主线程不被IO操作卡死
         self.executor = ThreadPoolExecutor(max_workers=1)
+        self.running = True # [修复] 添加运行标志，防止僵尸任务
         
         if not os.path.exists(self.img_dir): os.makedirs(self.img_dir, exist_ok=True)
             
@@ -74,13 +75,15 @@ class MemeMaster(Star):
         except Exception as e:
             print(f"ERROR: [Meme] 任务启动失败: {e}")
 
+    def __del__(self):
+        self.running = False # 尝试优雅退出
+
     # ==========================
-    # Web 服务 (只修 Bug，不删功能)
+    # Web 服务
     # ==========================
     async def start_web_server(self):
         try:
             app = web.Application()
-            # 修复：允许大文件上传，防止网络错误
             app._client_max_size = 1024 * 1024 * 1024 
             
             app.router.add_get("/", self.h_idx)
@@ -103,11 +106,15 @@ class MemeMaster(Star):
         except Exception as e:
             print(f"ERROR: [Meme] WebUI 启动失败: {e}")
 
-    # 修复：防止浏览器缓存导致页面不更新
     async def h_idx(self, r): 
+        # [修复] 允许携带 token 的请求，或者本地访问
         if not self.check_auth(r): return web.Response(status=403, text="Need ?token=xxx")
         try:
-            html = self.read_file("index.html").replace("{{MEME_DATA}}", json.dumps(self.data))
+            # [修复] 动态注入 Token，防止前端硬编码的 'admin123' 失效
+            current_token = self.local_config.get("web_token", "admin123")
+            html = self.read_file("index.html") \
+                .replace("{{MEME_DATA}}", json.dumps(self.data)) \
+                .replace("admin123", current_token) 
         except:
             html = "Error: index.html not found"
         return web.Response(
@@ -120,11 +127,9 @@ class MemeMaster(Star):
             }
         )
 
-    # 修复：解决前端配置页面一直在转圈的问题 (放开GET权限)
     async def h_gcf(self, r):
         return web.json_response(self.local_config)
 
-    # 修复：恢复备份时防止卡死，使用线程池
     async def h_restore(self, r):
         if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
         try:
@@ -152,7 +157,6 @@ class MemeMaster(Star):
             print(f"ERROR: [Meme] 恢复失败: {e}")
             return web.Response(status=500, text=str(e))
 
-    # 修复：增加权限判断，防止 Docker 路径报错崩溃
     async def _init_image_hashes(self):
         print("DEBUG: [Meme] 开始构建图片哈希索引...")
         loop = asyncio.get_running_loop()
@@ -171,14 +175,11 @@ class MemeMaster(Star):
                         self.img_hashes[f] = h
                         count += 1
             except Exception as e:
-                # 只打印严重错误，忽略小的读取错误
-                if "Permission" in str(e):
-                    print(f"WARN: [Meme] 权限拒绝 {f}，请检查Docker挂载")
                 pass
         print(f"DEBUG: [Meme] 哈希索引构建完成，有效: {count}")
 
     # ==========================
-    # 功能逻辑 (全部保留)
+    # 功能逻辑
     # ==========================
     async def h_up(self, r): 
         if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
@@ -206,9 +207,8 @@ class MemeMaster(Star):
             return web.Response(text="ok")
         except Exception as e: return web.Response(status=500, text=str(e))
 
-    # [保留] 主动聊天逻辑
     async def _lonely_watcher(self):
-        while True:
+        while self.running: # [修复] 添加退出控制
             await asyncio.sleep(60) 
             interval = self.local_config.get("proactive_interval", 0)
             if interval <= 0: continue
@@ -232,6 +232,7 @@ class MemeMaster(Star):
                     full_memory = self.load_memory()
                     ctx = f"{self.get_time_str()}\n你已经很久({interval}分钟)没有和用户说话了。\n[你的长期记忆]: {full_memory}\n请根据记忆和时间，主动发起一个不生硬的话题。"
                     try:
+                        # [修复] 这里的调用是正确的，无需修改
                         resp = await provider.text_chat(ctx, session_id=getattr(self, "last_session_id", None))
                         text = (getattr(resp, "completion_text", None) or getattr(resp, "text", "")).strip()
                         if text:
@@ -241,9 +242,11 @@ class MemeMaster(Star):
                     except Exception as e:
                         print(f"WARN: [Meme] 主动聊天失败: {e}")
 
-    @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE, priority=50)
+    # [修复] 移除 EventMessageType 限制，允许群聊和私聊
+    @filter.priority(50) 
     async def handle_private_msg(self, event: AstrMessageEvent):
         try:
+            # 排除机器人自己的消息
             if str(event.message_obj.sender.user_id) == str(self.context.get_current_provider_bot().self_id): return
         except: pass
 
@@ -313,7 +316,8 @@ class MemeMaster(Star):
         provider = self.context.get_using_provider()
         if provider:
             try:
-                resp = await provider.text_chat(text=full_prompt, session_id=event.session_id, image_urls=imgs)
+                # [致命错误修复] text=full_prompt 改为 prompt=full_prompt
+                resp = await provider.text_chat(prompt=full_prompt, session_id=event.session_id, image_urls=imgs)
                 reply = (getattr(resp, "completion_text", None) or getattr(resp, "text", "")).strip()
                 if reply: 
                     self.chat_history_buffer.append(f"AI: {reply}")
@@ -338,7 +342,8 @@ class MemeMaster(Star):
 {history_text}"""
 
         try:
-            resp = await provider.text_chat(prompt, session_id=None)
+            # [修复] 修正参数传递
+            resp = await provider.text_chat(prompt=prompt, session_id=None)
             summary = (getattr(resp, "completion_text", None) or getattr(resp, "text", "")).strip()
             
             if summary:
@@ -376,7 +381,6 @@ class MemeMaster(Star):
                 elif part:
                     mixed_chain.append(Plain(part))
             
-            # [保留] 这里的 smart_split 就是你要的复杂分段逻辑
             segments = self.smart_split(mixed_chain)
             uid = target_uid or event.unified_msg_origin
             
@@ -385,14 +389,14 @@ class MemeMaster(Star):
             
             for i, seg in enumerate(segments):
                 txt_c = "".join([c.text for c in seg if isinstance(c, Plain)])
-                mc = MessageChain(); mc.chain = seg
+                # [修复] 修正 MessageChain 构造方式
+                mc = MessageChain(seg)
                 await self.context.send_message(uid, mc)
                 if i < len(segments) - 1:
                     await asyncio.sleep(delay_base + len(txt_c) * delay_factor)
         except Exception as e:
             print(f"发送出错: {e}")
 
-    # [保留] 完整的智能分段算法
     def smart_split(self, chain):
         segs = []; buf = []
         stack = [] 
@@ -453,7 +457,10 @@ class MemeMaster(Star):
             if not provider: return
             default_prompt = "这是二次元/Meme环境。配文:{context_text}。若适合存为表情包，请回复: YES\n<MEME:名称>: 说明"
             prompt = self.local_config.get("ai_prompt", default_prompt).replace("{context_text}", context_text)
-            resp = await provider.text_chat(prompt, session_id=None, image_urls=[img_url])
+            
+            # [修复] 传入 session_id，保持上下文感知
+            sid = getattr(self, "last_session_id", None)
+            resp = await provider.text_chat(prompt=prompt, session_id=sid, image_urls=[img_url])
             content = (getattr(resp, "completion_text", None) or getattr(resp, "text", "")).strip()
             if "YES" in content:
                 match = re.search(r"<MEME:(.*?)>[:：]?(.*)", content)
