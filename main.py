@@ -1,5 +1,3 @@
---- START OF FILE text/x-python ---
-
 import os
 import json
 import random
