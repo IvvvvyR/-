@@ -329,7 +329,7 @@ class MemeMaster(Star):
         now_str = self.get_time_str()
         prompt = f"""当前时间：{now_str}
 这是最近的{len(current_batch)}句对话。请总结成一段“日记”，追加到长期记忆中。
-要求：包含准确时间信息，记录关键事件、用户偏好、重要梗。忽略无意义寒暄。200字以内。
+要求：包含准确时间信息，记录关键事件、用户偏好、重要事。忽略无意义寒暄。200字以内。
 对话内容：
 {history_text}"""
 
@@ -476,14 +476,32 @@ class MemeMaster(Star):
     async def _init_image_hashes(self):
         loop = asyncio.get_running_loop()
         count = 0
-        for f in os.listdir(self.img_dir):
-            if count > 2000: break 
+        print("DEBUG: [Meme] 开始扫描图片哈希...")
+        
+        # 获取所有文件列表
+        if not os.path.exists(self.img_dir): return
+        files = os.listdir(self.img_dir)
+        
+        for f in files:
+            # 只看图片
             if not f.lower().endswith(('.jpg', '.png', '.jpeg', '.gif', '.webp')): continue
+            
+            path = os.path.join(self.img_dir, f)
             try:
-                with open(os.path.join(self.img_dir, f), "rb") as fl: 
-                    h = await loop.run_in_executor(self.executor, self.calc_dhash, fl.read())
-                    if h: self.img_hashes[f] = h; count += 1
-            except: pass
+                # 读文件
+                with open(path, "rb") as fl: 
+                    content = fl.read()
+                    # 扔给后台计算，不卡顿
+                    h = await loop.run_in_executor(self.executor, self.calc_dhash, content)
+                    if h: 
+                        self.img_hashes[f] = h
+                        count += 1
+            except PermissionError:
+                print(f"ERROR: 权限不足，无法读取文件: {f} (请检查 Docker 权限)")
+            except Exception:
+                pass # 其他小错误跳过
+        
+        print(f"DEBUG: [Meme] 哈希扫描完成，共索引 {count} 张图片")
 
     def calc_dhash(self, image_data: bytes) -> str:
         try:
@@ -537,9 +555,22 @@ class MemeMaster(Star):
         if token == self.local_config.get("web_token"): return True
         return False
 
-    async def h_idx(self,r): 
+    async def h_idx(self, r): 
         if not self.check_auth(r): return web.Response(status=403, text="Need ?token=xxx")
-        return web.Response(text=self.read_file("index.html").replace("{{MEME_DATA}}", json.dumps(self.data)), content_type="text/html")
+        
+        # 这一步是把数据填进网页
+        html = self.read_file("index.html").replace("{{MEME_DATA}}", json.dumps(self.data))
+        
+        # 这一步是关键：告诉浏览器“千万别缓存，每次都找服务器要最新的”
+        return web.Response(
+            text=html, 
+            content_type="text/html",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
     
     async def h_del(self,r):
         if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
@@ -568,16 +599,39 @@ class MemeMaster(Star):
             if os.path.exists(self.config_file): z.write(self.config_file,"config.json") 
         b.seek(0); return web.Response(body=b, headers={'Content-Disposition':'attachment; filename="bk.zip"'})
     
-    async def h_restore(self,r):
+    async def h_restore(self, r):
         if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
-        rd=await r.multipart(); f=await rd.next()
-        if not f: return web.Response(status=400)
-        try: 
-            with zipfile.ZipFile(io.BytesIO(await f.read())) as z: z.extractall(self.base_dir)
-            self.data=self.load_data(); self.local_config=self.load_config()
+        try:
+            reader = await r.multipart()
+            field = await reader.next()
+            if not field or field.name != 'file': 
+                return web.Response(status=400, text="No file")
+            
+            # 1. 像旧版一样，直接读取所有数据到内存（你只有5M，这完全没问题）
+            file_data = await field.read()
+            
+            # 2. 定义解压动作（为了不卡死机器人，我们把它包一下）
+            def unzip_action():
+                # 这里的逻辑和你的旧版一模一样
+                with zipfile.ZipFile(io.BytesIO(file_data), 'r') as z:
+                    z.extractall(self.base_dir)
+            
+            # 3. 扔到后台线程去跑
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(self.executor, unzip_action)
+
+            # 4. 刷新数据
+            self.data = self.load_data()
+            self.local_config = self.load_config()
+            
+            # 5. 顺手重新计算一下哈希
             asyncio.create_task(self._init_image_hashes())
+            
             return web.Response(text="ok")
-        except: return web.Response(status=500)
+        except Exception as e:
+            # 打印错误到控制台，方便你看 docker logs
+            print(f"ERROR: 恢复备份失败: {e}")
+            return web.Response(status=500, text=f"Restore Failed: {str(e)}")
     async def h_slim(self,r):
         if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
         count = 0; loop = asyncio.get_running_loop()
