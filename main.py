@@ -26,9 +26,9 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import EventMessageType
 from astrbot.core.message.components import Image, Plain
 
-print("DEBUG: MemeMaster Pro (Debug版) 正在启动...")
+print("DEBUG: MemeMaster Pro (Auto-Retry) 正在启动...")
 
-@register("vv_meme_master", "MemeMaster", "调试修复版", "3.6.1")
+@register("vv_meme_master", "MemeMaster", "自动容错版", "3.8.0")
 class MemeMaster(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -201,7 +201,7 @@ class MemeMaster(Star):
         except asyncio.CancelledError: pass
 
     # ==========================
-    # 核心打印区 (查看发给 Google 的内容)
+    # 核心修复: 自动容错重试
     # ==========================
     async def _execute_buffer(self, uid, force_event=None):
         if uid not in self.msg_buffers: return
@@ -213,6 +213,7 @@ class MemeMaster(Star):
         time_info = self.get_time_str()
         memory_info = f"\n[前情提要: {self.current_summary}]" if self.current_summary else ""
         
+        # 把小抄（表情包菜单）加回来了
         hint_msg = ""
         if random.randint(1, 100) <= self.local_config.get("reply_prob", 50):
             all_tags = [v.get("tags", "").split(":")[0].strip() for v in self.data.values()]
@@ -223,22 +224,27 @@ class MemeMaster(Star):
 
         full_prompt = f"{time_info}{memory_info}\nUser: {' '.join(texts)}{hint_msg}"
         
-        # --- 打印诊断日志 ---
-        print(f"\n====== DEBUG START ======\nPROMPT LEN: {len(full_prompt)}\nIMG COUNT: {len(imgs)}\nPROMPT HEAD: {full_prompt[:100]}\n====== DEBUG END ======\n")
-        # --------------------
-
         provider = self.context.get_using_provider()
         if provider:
-            # 这里的修改可以解决 400 错误：如果没有图片，就传 None
             use_imgs = imgs if imgs else None
             try:
+                # 第一次尝试：带 session_id (带历史记录)
                 resp = await provider.text_chat(text=full_prompt, session_id=event.session_id, image_urls=use_imgs)
                 reply = (getattr(resp, "completion_text", None) or getattr(resp, "text", "")).strip()
                 if reply: 
                     self.chat_history_buffer.append(f"AI: {reply}"); self.save_buffer_to_disk()
                     await self.process_and_send(event, reply)
-            except Exception as e: 
-                print(f"LLM请求失败: {e}")
+            except Exception as e:
+                print(f"[Meme] 请求失败 ({e})，正在尝试【无记忆重试】...")
+                try:
+                    # 第二次尝试：不带 session_id (强制无视脏历史)
+                    resp = await provider.text_chat(text=full_prompt, session_id=None, image_urls=use_imgs)
+                    reply = (getattr(resp, "completion_text", None) or getattr(resp, "text", "")).strip()
+                    if reply: 
+                        print(f"[Meme] 重试成功！已回复。")
+                        await self.process_and_send(event, reply)
+                except Exception as e2:
+                    print(f"[Meme] 彻底失败: {e2}")
 
     async def check_and_summarize(self):
         if len(self.chat_history_buffer) < 50: return
