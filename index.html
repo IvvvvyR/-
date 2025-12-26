@@ -127,7 +127,6 @@
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         
-        /* 进度条 */
         .progress-container { width: 100%; background: #f1f5f9; height: 10px; border-radius: 5px; overflow: hidden; margin: 15px 0; }
         .progress-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s linear; }
     </style>
@@ -176,7 +175,6 @@
         <button class="bar-btn" onclick="exitSelectMode()">完成</button>
     </div>
 
-    <!-- 上传弹窗 -->
     <div class="modal-overlay" id="uploadModal">
         <div class="modal">
             <h3 style="margin:0 0 20px 0;">💟 上传新图</h3>
@@ -186,10 +184,8 @@
             </div>
             <input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="handleFileSelect()">
             <div class="form-group"><input type="text" id="globalTagInput" placeholder="设置标签 (可选)"></div>
-            
             <div id="uploadStatus" style="font-size:0.9rem; color:var(--primary); text-align:center; display:none; margin-bottom:5px;">准备中...</div>
             <div class="progress-container" id="progressBar" style="display:none"><div class="progress-fill" id="progressFill"></div></div>
-            
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px;">
                 <button class="btn-ghost" onclick="closeUploadModal()">关闭</button>
                 <button class="btn-primary" id="startUploadBtn" onclick="batchUpload()" style="width:auto; margin-top:0; padding:12px 30px;">开始上传</button>
@@ -197,7 +193,6 @@
         </div>
     </div>
 
-    <!-- 恢复弹窗 -->
     <div class="modal-overlay" id="restoreModal">
         <div class="modal" style="text-align:center; padding:40px;">
             <div style="font-size:3rem; margin-bottom:15px;">📥</div>
@@ -206,7 +201,6 @@
         </div>
     </div>
 
-    <!-- 编辑弹窗 -->
     <div class="modal-overlay" id="editModal">
         <div class="modal">
             <h3 style="margin-top:0;">✏️ 修改标签</h3>
@@ -218,7 +212,6 @@
         </div>
     </div>
     
-    <!-- 配置弹窗 -->
     <div class="modal-overlay" id="settingsModal">
         <div class="modal">
             <h3 style="margin:0 0 20px 0;">配置中心</h3>
@@ -236,6 +229,12 @@
                 <div class="form-group"><label>防抖等待 (秒)</label><input type="number" id="conf_debounce_time"></div>
                 <div class="form-group"><label>基础延迟 (秒)</label><input type="number" id="conf_delay_base"></div>
                 <div class="form-group"><label>字数延迟系数</label><input type="number" id="conf_delay_factor"></div>
+                <div style="border-top:1px solid #f1f5f9; margin:15px 0;"></div>
+                <div class="form-group"><label>主动聊天间隔 (分钟, 0为关闭)</label><input type="number" id="conf_proactive_interval"></div>
+                <div style="display:flex; gap:10px;">
+                    <div class="form-group"><label>静默开始 (小时)</label><input type="number" id="conf_quiet_start" placeholder="23"></div>
+                    <div class="form-group"><label>静默结束 (小时)</label><input type="number" id="conf_quiet_end" placeholder="7"></div>
+                </div>
             </div>
             <div style="display:flex; justify-content:space-between; margin-top:25px;">
                 <button class="btn-ghost" onclick="closeSettings()">取消</button>
@@ -346,7 +345,7 @@
         async function openSettings() {
             try {
                 const c = await (await fetch('/get_config?token=admin123')).json();
-                ['reply_prob','auto_save_cooldown','debounce_time','delay_base','delay_factor'].forEach(k => {
+                ['reply_prob','auto_save_cooldown','debounce_time','delay_base','delay_factor', 'proactive_interval', 'quiet_start', 'quiet_end'].forEach(k => {
                     if(document.getElementById(`conf_${k}`)) document.getElementById(`conf_${k}`).value = c[k]??0;
                 });
                 document.getElementById('conf_ai_prompt').value = c['ai_prompt'] || "";
@@ -356,7 +355,7 @@
         function closeSettings() { document.getElementById('settingsModal').style.display = 'none'; }
         async function saveSettings() {
             const conf = {};
-            ['reply_prob','auto_save_cooldown','debounce_time','delay_base','delay_factor'].forEach(k => {
+            ['reply_prob','auto_save_cooldown','debounce_time','delay_base','delay_factor', 'proactive_interval', 'quiet_start', 'quiet_end'].forEach(k => {
                 conf[k] = parseFloat(document.getElementById(`conf_${k}`).value);
             });
             conf['ai_prompt'] = document.getElementById('conf_ai_prompt').value;
