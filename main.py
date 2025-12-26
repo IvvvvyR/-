@@ -1,3 +1,5 @@
+--- START OF FILE text/x-python ---
+
 import os
 import json
 import random
@@ -9,6 +11,7 @@ import difflib
 import zipfile
 import io
 import datetime
+import gc
 from concurrent.futures import ThreadPoolExecutor
 from aiohttp import web
 from PIL import Image as PILImage
@@ -26,9 +29,9 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import EventMessageType
 from astrbot.core.message.components import Image, Plain
 
-print("DEBUG: MemeMaster Pro (v1.7.1 Optimized) 已加载")
+print("DEBUG: MemeMaster Pro (v2.0 Final Perfect) 已加载")
 
-@register("vv_meme_master", "MemeMaster", "防抖+长记忆+Markdown清洗+优化分段", "1.7.1")
+@register("vv_meme_master", "MemeMaster", "全功能+内存优化+完美备份", "2.0.0")
 class MemeMaster(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -39,24 +42,28 @@ class MemeMaster(Star):
         self.memory_file = os.path.join(self.base_dir, "memory.txt") 
         self.buffer_file = os.path.join(self.base_dir, "buffer.json") 
         
-        self.executor = ThreadPoolExecutor(max_workers=3)
+        # 【内存保护】强制单线程
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        
         if not os.path.exists(self.img_dir): os.makedirs(self.img_dir, exist_ok=True)
             
         self.local_config = self.load_config()
+        if "web_token" not in self.local_config:
+            self.local_config["web_token"] = "admin123" 
+            self.save_config()
+
         self.data = self.load_data()
         self.img_hashes = {}
         
         self.debounce_tasks = {}
         self.msg_buffers = {}
         
-        # 启动时恢复缓存
         self.chat_history_buffer = self.load_buffer_from_disk()
-        
         self.last_active_time = time.time()
         self.current_summary = self.load_memory()
         
-        # 配对符号，用于防止切断括号内的内容
-        self.pair_map = {'“': '”', '《': '》', '（': '）', '(': ')', '[': ']', '{': '}'}
+        self.left_pairs = {'“': '”', '《': '》', '（': '）', '(': ')', '[': ']', '{': '}'}
+        self.right_pairs = {v: k for k, v in self.left_pairs.items()}
 
         try:
             loop = asyncio.get_running_loop()
@@ -67,14 +74,12 @@ class MemeMaster(Star):
             print(f"ERROR: 启动任务失败: {e}")
 
     # ==========================
-    # 硬盘缓冲读写
+    # 基础 I/O
     # ==========================
     def load_buffer_from_disk(self):
         if os.path.exists(self.buffer_file):
             try:
-                with open(self.buffer_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return data
+                with open(self.buffer_file, "r", encoding="utf-8") as f: return json.load(f)
             except: return []
         return []
 
@@ -84,9 +89,6 @@ class MemeMaster(Star):
                 json.dump(self.chat_history_buffer, f, ensure_ascii=False, indent=2)
         except: pass
 
-    # ==========================
-    # 时间系统
-    # ==========================
     def get_time_str(self):
         now = datetime.datetime.now()
         week_days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
@@ -103,7 +105,7 @@ class MemeMaster(Star):
         return f"[当前时间: {solar_str}{lunar_str}]"
 
     # ==========================
-    # 寂寞主动聊 (含静默时段)
+    # 寂寞主动聊
     # ==========================
     async def _lonely_watcher(self):
         print("[Meme] 寂寞检测启动...")
@@ -112,7 +114,6 @@ class MemeMaster(Star):
             interval = self.local_config.get("proactive_interval", 0)
             if interval <= 0: continue
             
-            # 静默判断
             q_start = self.local_config.get("quiet_start", -1)
             q_end = self.local_config.get("quiet_end", -1)
             if q_start != -1 and q_end != -1:
@@ -127,7 +128,8 @@ class MemeMaster(Star):
             if time.time() - self.last_active_time > (interval * 60):
                 self.last_active_time = time.time() 
                 provider = self.context.get_using_provider()
-                if provider:
+                uid = getattr(self, "last_uid", None)
+                if provider and uid:
                     full_memory = self.load_memory()
                     ctx = f"{self.get_time_str()}\n你已经很久({interval}分钟)没有和用户说话了。\n[你的长期记忆]: {full_memory}\n请根据记忆和时间，主动发起一个不生硬的话题。"
                     try:
@@ -137,13 +139,11 @@ class MemeMaster(Star):
                         if text:
                             self.chat_history_buffer.append(f"AI: {text}")
                             self.save_buffer_to_disk()
-                            
-                            uid = getattr(self, "last_uid", None)
-                            if uid: await self.process_and_send(None, text, target_uid=uid)
+                            await self.process_and_send(None, text, target_uid=uid)
                     except: pass
 
     # ==========================
-    # 核心消息处理 (防抖)
+    # 消息处理
     # ==========================
     @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE, priority=50)
     async def handle_private_msg(self, event: AstrMessageEvent):
@@ -234,7 +234,7 @@ class MemeMaster(Star):
             except Exception as e: print(f"LLM请求失败: {e}")
 
     # ==========================
-    # 外挂记忆 (事务安全)
+    # 记忆系统
     # ==========================
     def load_memory(self):
         if os.path.exists(self.memory_file):
@@ -249,7 +249,7 @@ class MemeMaster(Star):
         current_batch = list(self.chat_history_buffer)
         history_text = "\n".join(current_batch)
         
-        print(f"[Meme] 触发记忆总结 (待处理 {len(current_batch)} 条)...")
+        print(f"[Meme] 触发记忆总结...")
         provider = self.context.get_using_provider()
         if not provider: return
 
@@ -265,25 +265,27 @@ class MemeMaster(Star):
             summary = (getattr(resp, "completion_text", None) or getattr(resp, "text", "")).strip()
             
             if summary:
-                with open(self.memory_file, "a", encoding="utf-8") as f: 
-                    f.write(f"\n\n--- {now_str} ---\n{summary}")
+                def write_task():
+                    with open(self.memory_file, "a", encoding="utf-8") as f: 
+                        f.write(f"\n\n--- {now_str} ---\n{summary}")
+                await asyncio.get_running_loop().run_in_executor(self.executor, write_task)
                 
                 self.current_summary = self.load_memory()
                 self.chat_history_buffer = self.chat_history_buffer[len(current_batch):]
                 self.save_buffer_to_disk()
                 print(f"[Meme] 记忆追加成功")
-            else:
-                print(f"[Meme] 总结为空")
+                gc.collect()
         except Exception as e:
             print(f"总结失败 ({e})")
+            if len(self.chat_history_buffer) > threshold * 2:
+                self.chat_history_buffer = self.chat_history_buffer[threshold:]
+                self.save_buffer_to_disk()
 
     # ==========================
-    # 发送处理 (优化分段 + Markdown清洗)
+    # 发送处理
     # ==========================
     async def process_and_send(self, event, text, target_uid=None):
-        # 【修改点 1】 清洗 Markdown 加粗符号
         text = text.replace("**", "").replace("### ", "")
-        
         print(f"[Meme] AI回复: {text[:30]}...")
         try:
             pattern = r"(<MEME:.*?>|MEME_TAG:\s*[\S]+)"
@@ -317,11 +319,10 @@ class MemeMaster(Star):
         except Exception as e:
             print(f"发送出错: {e}")
 
-    # ==========================
-    # 辅助工具 (优化分段逻辑)
-    # ==========================
     def smart_split(self, chain):
         segs = []; buf = []
+        stack = [] 
+
         for c in chain:
             if isinstance(c, Image): 
                 if buf: segs.append(buf[:]); buf.clear()
@@ -330,20 +331,14 @@ class MemeMaster(Star):
                 txt = c.text; idx = 0; chunk = ""
                 while idx < len(txt):
                     char = txt[idx]
-                    # 保护括号内容
-                    if char in self.pair_map: 
-                        # 简单处理：遇到括号就一直吃到闭括号（略复杂，这里用简单的非分段字符处理）
-                        # 保持原有逻辑，增加标点粘连检测
-                        pass 
+                    
+                    if char in self.left_pairs: stack.append(self.left_pairs[char])
+                    elif char in self.right_pairs and stack and stack[-1] == char: stack.pop()
                     
                     chunk += char
                     
-                    # 【修改点 2】 优化分段检测
-                    if char in "\n。？！?!":
-                        # 核心修改：向后看一位
-                        # 如果下一位也是标点，说明是 "!!" "??" "..." 这种情况，先不切
-                        if idx + 1 < len(txt) and txt[idx+1] in "\n。？！?!":
-                            pass # 继续累积
+                    if not stack and char in "\n。？！?!":
+                        if idx + 1 < len(txt) and txt[idx+1] in "\n。？！?!": pass 
                         else:
                             if chunk.strip(): buf.append(Plain(chunk))
                             if buf: segs.append(buf[:]); buf.clear()
@@ -353,16 +348,21 @@ class MemeMaster(Star):
         if buf: segs.append(buf)
         return segs
 
+    # ==========================
+    # 图片处理
+    # ==========================
     def compress_image_sync(self, image_data: bytes) -> tuple[bytes, str]:
         try:
             img = PILImage.open(io.BytesIO(image_data))
             if getattr(img, 'is_animated', False) or img.format == 'GIF': return image_data, ".gif"
-            max_size = 350 
+            
+            max_size = 350
             w, h = img.size
             if w > max_size or h > max_size:
                 if w > h: new_w = max_size; new_h = int(h * (max_size / w))
                 else: new_h = max_size; new_w = int(w * (max_size / h))
                 img = img.resize((new_w, new_h), PILImage.Resampling.LANCZOS)
+            
             buffer = io.BytesIO()
             if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
                 if img.mode != "RGBA": img = img.convert("RGBA")
@@ -377,6 +377,8 @@ class MemeMaster(Star):
             self.last_auto_save_time = time.time()
             img_data = await self.download_image(img_url)
             if not img_data: return
+            if len(img_data) > 4 * 1024 * 1024: return
+
             loop = asyncio.get_running_loop()
             current_hash = await loop.run_in_executor(self.executor, self.calc_dhash, img_data)
             if current_hash and self.is_duplicate(current_hash): return
@@ -401,16 +403,19 @@ class MemeMaster(Star):
                     self.data[fn] = {"tags": full_tag, "source": "auto"}
                     if current_hash: self.img_hashes[fn] = current_hash 
                     self.save_data()
+            gc.collect() 
         except: pass
 
     async def _init_image_hashes(self):
         loop = asyncio.get_running_loop()
+        count = 0
         for f in os.listdir(self.img_dir):
+            if count > 2000: break 
             if not f.lower().endswith(('.jpg', '.png', '.jpeg', '.gif', '.webp')): continue
             try:
                 with open(os.path.join(self.img_dir, f), "rb") as fl: 
                     h = await loop.run_in_executor(self.executor, self.calc_dhash, fl.read())
-                    if h: self.img_hashes[f] = h
+                    if h: self.img_hashes[f] = h; count += 1
             except: pass
 
     def calc_dhash(self, image_data: bytes) -> str:
@@ -460,6 +465,11 @@ class MemeMaster(Star):
     def load_data(self): return json.load(open(self.data_file)) if os.path.exists(self.data_file) else {}
     def save_data(self): json.dump(self.data, open(self.data_file,"w"), ensure_ascii=False)
 
+    def check_auth(self, r):
+        token = r.query.get("token")
+        if token == self.local_config.get("web_token"): return True
+        return False
+
     async def start_web_server(self):
         app = web.Application(); app._client_max_size = 50*1024*1024
         app.router.add_get("/", self.h_idx); app.router.add_post("/upload", self.h_up)
@@ -469,10 +479,13 @@ class MemeMaster(Star):
         app.router.add_post("/slim_images", self.h_slim); app.router.add_static("/images/", path=self.img_dir)
         runner = web.AppRunner(app); await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", self.local_config.get("web_port", 5000))
-        await site.start(); print(f"WebUI started")
+        await site.start(); print(f"WebUI running")
     
-    async def h_idx(self,r): return web.Response(text=self.read_file("index.html").replace("{{MEME_DATA}}", json.dumps(self.data)), content_type="text/html")
+    async def h_idx(self,r): 
+        if not self.check_auth(r): return web.Response(status=403, text="Need ?token=xxx")
+        return web.Response(text=self.read_file("index.html").replace("{{MEME_DATA}}", json.dumps(self.data)), content_type="text/html")
     async def h_up(self,r): 
+        if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
         rd=await r.multipart(); t="未分类"
         while True:
             p=await rd.next()
@@ -489,21 +502,35 @@ class MemeMaster(Star):
             elif p.name=="tags": t=await p.text()
         self.save_data(); return web.Response(text="ok")
     async def h_del(self,r):
+        if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
         for f in (await r.json()).get("filenames",[]):
             try: os.remove(os.path.join(self.img_dir,f)); del self.data[f]
             except: pass
         self.save_data(); return web.Response(text="ok")
-    async def h_tag(self,r): d=await r.json(); self.data[d['filename']]['tags']=d['tags']; self.save_data(); return web.Response(text="ok")
-    async def h_gcf(self,r): return web.json_response(self.local_config)
-    async def h_ucf(self,r): self.local_config.update(await r.json()); self.save_config(); return web.Response(text="ok")
+    async def h_tag(self,r): 
+        if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
+        d=await r.json(); self.data[d['filename']]['tags']=d['tags']; self.save_data(); return web.Response(text="ok")
+    async def h_gcf(self,r): 
+        if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
+        return web.json_response(self.local_config)
+    async def h_ucf(self,r): 
+        if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
+        self.local_config.update(await r.json()); self.save_config(); return web.Response(text="ok")
+    
+    # 【已修复】现在可以备份记忆文件和配置文件了
     async def h_backup(self,r):
+        if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
         b=io.BytesIO()
         with zipfile.ZipFile(b,'w',zipfile.ZIP_DEFLATED) as z:
             for root,_,files in os.walk(self.img_dir): 
                 for f in files: z.write(os.path.join(root,f),f"images/{f}")
             if os.path.exists(self.data_file): z.write(self.data_file,"memes.json")
+            if os.path.exists(self.memory_file): z.write(self.memory_file,"memory.txt") # 备份记忆
+            if os.path.exists(self.config_file): z.write(self.config_file,"config.json") # 备份配置
         b.seek(0); return web.Response(body=b, headers={'Content-Disposition':'attachment; filename="bk.zip"'})
+    
     async def h_restore(self,r):
+        if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
         rd=await r.multipart(); f=await rd.next()
         if not f: return web.Response(status=400)
         try: 
@@ -513,6 +540,7 @@ class MemeMaster(Star):
             return web.Response(text="ok")
         except: return web.Response(status=500)
     async def h_slim(self,r):
+        if not self.check_auth(r): return web.Response(status=403, text="Forbidden")
         count = 0; loop = asyncio.get_running_loop()
         self.img_hashes = {}
         for f in os.listdir(self.img_dir):
