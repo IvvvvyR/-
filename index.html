@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Mememaster</title>
+    <title>Mememaster Pro</title>
     <style>
         :root { 
             --primary: #6366f1; 
@@ -28,200 +28,108 @@
             width: 100vw;
         }
 
-        /* === 顶部栏 (核心修复区域) === */
-        .header { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            margin-bottom: 24px; 
-            padding-top: 5px;
-            width: 100%;
-        }
-        
-        .brand { 
-            display: flex; 
-            flex-direction: column; 
-            /* 让标题部分可以收缩，不要硬挤右边的图标 */
-            flex: 1; 
-            min-width: 0; 
-            margin-right: 10px;
-        }
-        
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-top: 5px; width: 100%; }
+        .brand { display: flex; flex-direction: column; flex: 1; min-width: 0; margin-right: 10px; }
         .brand h1 { 
-            font-size: 1.6rem; 
-            margin: 0; 
-            color: var(--text-main); 
-            font-weight: 900; 
-            letter-spacing: -0.5px; 
+            font-size: 1.6rem; margin: 0; font-weight: 900; letter-spacing: -0.5px; 
             background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-            -webkit-background-clip: text; 
-            -webkit-text-fill-color: transparent;
-            /* 关键：防止标题撑破屏幕 */
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis; 
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
         }
-        
         .logo-icon { font-size: 1.2rem; margin-bottom: 2px; }
-        
-        .header-icons { 
-            display: flex; 
-            gap: 8px; /* 稍微调小间距，防止换行 */
-            /* 关键：金钟罩，禁止压缩图标区域，保证都在屏幕内 */
-            flex-shrink: 0; 
-        }
-        
+        .header-icons { display: flex; gap: 8px; flex-shrink: 0; }
         .icon-btn { 
             background: var(--surface); border: none; border-radius: 12px; 
-            width: 40px; height: 40px; /* 稍微改小一点点适应小屏 */
-            display: flex; align-items: center; justify-content: center; 
-            cursor: pointer; font-size: 1.2rem; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.04); 
+            width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; 
+            cursor: pointer; font-size: 1.2rem; box-shadow: 0 4px 12px rgba(0,0,0,0.04); 
             transition: transform 0.1s; 
         }
         .icon-btn:active { transform: scale(0.92); }
 
-        /* === 搜索框 === */
         .search-box { position: relative; margin-bottom: 20px; width: 100%; }
         .search-box input { 
             width: 100%; padding: 16px 20px; padding-left: 52px; 
-            border: 2px solid transparent; border-radius: 24px; 
-            background: var(--surface); 
-            box-shadow: var(--shadow); 
-            font-size: 1rem; color: var(--text-main); 
-            transition: all 0.3s;
+            border: 2px solid transparent; border-radius: 24px; background: var(--surface); 
+            box-shadow: var(--shadow); font-size: 1rem; color: var(--text-main); transition: all 0.3s;
         }
         .search-box input:focus { border-color: var(--primary); }
         .search-icon { position: absolute; left: 20px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 1.2rem; }
 
-        /* === 筛选按钮组 === */
-        .controls-scroll { 
-            display: flex; overflow-x: auto; gap: 12px; padding: 4px 4px 15px 4px; 
-            scrollbar-width: none; -webkit-overflow-scrolling: touch; 
-            width: 100%;
-        }
+        .controls-scroll { display: flex; overflow-x: auto; gap: 12px; padding: 4px 4px 15px 4px; scrollbar-width: none; width: 100%; }
         .controls-scroll::-webkit-scrollbar { display: none; }
         .filter-btn { 
-            padding: 10px 22px; border-radius: 30px; border: none; 
-            font-weight: 600; font-size: 0.95rem; white-space: nowrap; 
-            background: var(--surface); color: var(--text-sub); 
-            box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+            padding: 10px 22px; border-radius: 30px; border: none; font-weight: 600; font-size: 0.95rem; white-space: nowrap; 
+            background: var(--surface); color: var(--text-sub); box-shadow: 0 4px 10px rgba(0,0,0,0.03);
             transition: all 0.2s; display: flex; align-items: center; gap: 6px;
         }
-        .filter-btn.active { 
-            background: var(--primary); color: white; 
-            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3); 
-            transform: translateY(-1px);
-        }
+        .filter-btn.active { background: var(--primary); color: white; box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3); transform: translateY(-1px); }
         
-        /* === 图片瀑布流 === */
-        .gallery { 
-            display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; 
-            padding-bottom: 20px; width: 100%;
-        }
+        .gallery { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; padding-bottom: 20px; width: 100%; }
         @media (min-width: 600px) { .gallery { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); } }
         
         .card { 
-            background: var(--surface); border-radius: var(--radius); overflow: hidden; 
-            position: relative; box-shadow: 0 4px 15px rgba(0,0,0,0.04); 
-            transition: transform 0.1s; transform: translateZ(0); 
-            -webkit-touch-callout: none; 
+            background: var(--surface); border-radius: var(--radius); overflow: hidden; position: relative; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.04); transition: transform 0.1s; transform: translateZ(0); 
         }
         .card:active { transform: scale(0.96); }
         .card.selected { box-shadow: 0 0 0 3px var(--primary); transform: scale(0.96); }
         .card img { width: 100%; height: 180px; object-fit: cover; background: #f1f5f9; display: block; }
         .card-body { padding: 12px 14px; }
-        .tag-text { font-size: 0.95rem; color: var(--text-main); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 6px; }
+        .tag-text { font-size: 0.95rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 6px; }
         .source-tag { font-size: 0.75rem; color: #94a3b8; display: flex; align-items: center; justify-content: space-between; }
         
-        .badge { position: absolute; top: 10px; left: 10px; padding: 5px 12px; border-radius: 12px; font-size: 0.7rem; color: white; font-weight: 700; z-index: 2; backdrop-filter: blur(8px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .badge { position: absolute; top: 10px; left: 10px; padding: 5px 12px; border-radius: 12px; font-size: 0.7rem; color: white; font-weight: 700; z-index: 2; backdrop-filter: blur(8px); }
         .badge-manual { background: rgba(239, 68, 68, 0.85); } 
         .badge-auto { background: rgba(139, 92, 246, 0.85); }   
         
-        .check-mark { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; background: rgba(255,255,255,0.9); border-radius: 50%; z-index: 6; display: none; align-items: center; justify-content: center; color: var(--primary); font-size: 18px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.15); backdrop-filter: blur(4px); }
+        .check-mark { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; background: rgba(255,255,255,0.9); border-radius: 50%; z-index: 6; display: none; align-items: center; justify-content: center; color: var(--primary); font-size: 18px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
         .selection-mode .check-mark { display: flex; animation: popIn 0.2s; }
         .card.selected .check-mark { background: var(--primary); color: white; }
         @keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
 
-        /* === 分页 === */
         .pagination { display: flex; justify-content: center; align-items: center; gap: 20px; margin-top: 10px; font-weight: 600; color: var(--text-sub); }
         .page-btn { background: var(--surface); width: 48px; height: 48px; border-radius: 16px; border: none; box-shadow: var(--shadow); cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-main); font-size: 1.2rem; }
-        .page-btn:active { transform: scale(0.9); }
-
-        /* === 管理工具条 === */
+        
         .manage-bar { 
             position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(200%);
-            background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(10px);
-            padding: 12px 24px; border-radius: 50px;
-            display: flex; gap: 20px; z-index: 100; 
-            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-            margin-bottom: env(safe-area-inset-bottom);
+            background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(10px); padding: 12px 24px; border-radius: 50px;
+            display: flex; gap: 20px; z-index: 100; box-shadow: 0 20px 40px rgba(0,0,0,0.3); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .selection-mode .manage-bar { transform: translateX(-50%) translateY(0); }
         .bar-btn { color: white; background: transparent; border: none; font-size: 1rem; font-weight: 600; cursor: pointer; padding: 0 5px; }
         .bar-btn-del { color: #fca5a5; }
 
-        /* === 进度条 === */
-        .progress-container { width: 100%; background: #f1f5f9; height: 10px; border-radius: 5px; overflow: hidden; margin: 15px 0; }
-        .progress-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s linear; border-radius: 5px; }
-
-        /* === 弹窗通用 === */
-        .modal-overlay { 
-            position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; 
-            display: none; justify-content: center; align-items: center; 
-            backdrop-filter: blur(5px); animation: fadeIn 0.2s;
-        }
-        .modal { 
-            background: var(--surface); padding: 28px; border-radius: 32px; 
-            width: 85%; max-width: 360px; max-height: 85vh; overflow-y: auto; 
-            box-shadow: 0 20px 60px rgba(0,0,0,0.2); 
-            animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); 
-            margin: 20px;
-        }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; display: none; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
+        .modal { background: var(--surface); padding: 28px; border-radius: 32px; width: 85%; max-width: 360px; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2); animation: slideUp 0.3s; margin: 20px; }
         @keyframes slideUp { from { transform: translateY(30px) scale(0.95); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
         .form-group { margin-bottom: 18px; width: 100%; }
-        .form-group label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-main); font-weight: 700; }
-        .form-group input, .form-group textarea { 
-            width: 100%; padding: 12px; border: 2px solid #f1f5f9; 
-            border-radius: 16px; font-size: 1rem; background: #f8fafc; 
-            outline: none; transition: all 0.2s; color: var(--text-main);
-        }
+        .form-group label { display: block; margin-bottom: 8px; font-size: 0.9rem; font-weight: 700; }
+        .form-group input, .form-group textarea { width: 100%; padding: 12px; border: 2px solid #f1f5f9; border-radius: 16px; font-size: 1rem; background: #f8fafc; outline: none; transition: all 0.2s; color: var(--text-main); }
         .form-group input:focus, .form-group textarea:focus { border-color: var(--primary); background: white; }
-        .hint { font-size: 0.8rem; color: #94a3b8; margin-top: 6px; line-height: 1.4; }
+        .hint { font-size: 0.8rem; color: #94a3b8; margin-top: 6px; }
 
-        .btn-primary { 
-            width: 100%; padding: 16px; font-size: 1rem; font-weight: 600;
-            background: var(--primary); color: white; border: none; 
-            border-radius: 20px; box-shadow: 0 10px 20px rgba(99, 102, 241, 0.3);
-            margin-top: 10px; transition: transform 0.1s;
-        }
-        .btn-primary:active { transform: scale(0.98); }
+        .btn-primary { width: 100%; padding: 16px; font-size: 1rem; font-weight: 600; background: var(--primary); color: white; border: none; border-radius: 20px; margin-top: 10px; }
         .btn-ghost { background: transparent; color: var(--text-sub); border: none; padding: 10px; font-weight: 600; }
-
-        .tabs { display: flex; background: #f1f5f9; padding: 5px; border-radius: 20px; margin-bottom: 25px; width: 100%; }
-        .tab { flex: 1; text-align: center; padding: 12px 0; cursor: pointer; color: var(--text-sub); font-weight: 600; border-radius: 16px; transition: all 0.3s; font-size: 0.95rem; }
-        .tab.active { background: white; color: var(--primary); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-        .tab-content { display: none; width: 100%; }
-        .tab-content.active { display: block; animation: fadeIn 0.3s; }
 
         .toast { 
             position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-100px); 
-            background: rgba(30, 41, 59, 0.95); color: white; padding: 12px 24px; 
-            border-radius: 50px; font-size: 0.9rem; z-index: 300; 
-            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
-            opacity: 0; box-shadow: 0 10px 30px rgba(0,0,0,0.2); font-weight: 600; 
-            backdrop-filter: blur(4px); pointer-events: none;
-            max-width: 90%; text-align: center;
+            background: rgba(30, 41, 59, 0.95); color: white; padding: 12px 24px; border-radius: 50px; 
+            font-size: 0.9rem; z-index: 300; transition: transform 0.4s; opacity: 0; pointer-events: none;
         }
         .toast.show { transform: translateX(-50%) translateY(20px); opacity: 1; }
         
-        .upload-area {
-            background:#f8fafc; padding:30px; border-radius:24px; margin-bottom:20px; 
-            text-align:center; border:2px dashed #cbd5e1; cursor:pointer;
-        }
+        .upload-area { background:#f8fafc; padding:30px; border-radius:24px; margin-bottom:20px; text-align:center; border:2px dashed #cbd5e1; cursor:pointer; }
+        
+        .tabs { display: flex; background: #f1f5f9; padding: 5px; border-radius: 20px; margin-bottom: 25px; }
+        .tab { flex: 1; text-align: center; padding: 12px 0; cursor: pointer; color: var(--text-sub); font-weight: 600; border-radius: 16px; }
+        .tab.active { background: white; color: var(--primary); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        /* 进度条 */
+        .progress-container { width: 100%; background: #f1f5f9; height: 10px; border-radius: 5px; overflow: hidden; margin: 15px 0; }
+        .progress-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s linear; }
     </style>
 </head>
 <body>
@@ -236,7 +144,7 @@
         <div class="header-icons">
             <div class="icon-btn" onclick="document.getElementById('restoreInput').click()" title="恢复"><span style="font-size:1.1rem">📥</span></div>
             <div class="icon-btn" onclick="backupData()" title="备份"><span style="font-size:1.1rem">📤</span></div>
-            <div class="icon-btn settings" onclick="openSettings()" title="配置"><span style="font-size:1.1rem; color:#64748b;">⚙️</span></div>
+            <div class="icon-btn" onclick="openSettings()" title="配置"><span style="font-size:1.1rem; color:#64748b;">⚙️</span></div>
             <div class="icon-btn" style="background:#f3e8ff; color:#a855f7" onclick="openUploadModal()" title="上传"><span style="font-size:1.2rem">💟</span></div>
         </div>
     </div>
@@ -271,20 +179,15 @@
     <!-- 上传弹窗 -->
     <div class="modal-overlay" id="uploadModal">
         <div class="modal">
-            <h3 style="margin:0 0 20px 0; color:var(--text-main); font-size:1.4rem;">💟 上传新图</h3>
-            
+            <h3 style="margin:0 0 20px 0;">💟 上传新图</h3>
             <div class="upload-area" onclick="document.getElementById('fileInput').click()">
                 <div style="font-size:2.5rem; margin-bottom:10px;">📷</div>
                 <div style="color:var(--text-sub); font-weight:500;">点击选择图片</div>
             </div>
-            
             <input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="handleFileSelect()">
+            <div class="form-group"><input type="text" id="globalTagInput" placeholder="设置标签 (可选)"></div>
             
-            <div class="form-group">
-                <input type="text" id="globalTagInput" placeholder="设置标签 (可选)">
-            </div>
-            
-            <div id="uploadStatus" style="font-size:0.9rem; color:var(--primary); text-align:center; display:none; margin-bottom:5px;">准备就绪</div>
+            <div id="uploadStatus" style="font-size:0.9rem; color:var(--primary); text-align:center; display:none; margin-bottom:5px;">准备中...</div>
             <div class="progress-container" id="progressBar" style="display:none"><div class="progress-fill" id="progressFill"></div></div>
             
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px;">
@@ -294,25 +197,20 @@
         </div>
     </div>
 
+    <!-- 恢复弹窗 -->
     <div class="modal-overlay" id="restoreModal">
-        <div class="modal" style="text-align:center; padding-top:40px; padding-bottom:40px;">
+        <div class="modal" style="text-align:center; padding:40px;">
             <div style="font-size:3rem; margin-bottom:15px;">📥</div>
-            <h3 style="margin:0 0 10px 0;">正在恢复数据</h3>
-            <p style="color:#64748b; font-size:0.9rem; margin-bottom:20px;">请勿关闭页面，这可能需要一点时间...</p>
-            
-            <div class="progress-container" style="background:#f1f5f9;">
-                <div class="progress-fill" id="restoreProgressFill" style="width:0%"></div>
-            </div>
-            <div id="restorePercent" style="font-weight:bold; color:var(--primary); margin-top:10px;">0%</div>
+            <h3 style="margin:0;">正在恢复</h3>
+            <p style="color:#64748b; font-size:0.9rem;">请勿关闭页面...</p>
         </div>
     </div>
 
+    <!-- 编辑弹窗 -->
     <div class="modal-overlay" id="editModal">
         <div class="modal">
-            <h3 style="margin-top:0; font-size:1.3rem;">✏️ 修改标签</h3>
-            <div class="form-group">
-                <input type="text" id="editTagInput" placeholder="输入新标签...">
-            </div>
+            <h3 style="margin-top:0;">✏️ 修改标签</h3>
+            <div class="form-group"><input type="text" id="editTagInput"></div>
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
                 <button class="btn-ghost" onclick="closeEdit()">取消</button>
                 <button class="btn-primary" onclick="confirmEdit()" style="width:auto; margin-top:0; padding:10px 24px;">确定</button>
@@ -320,31 +218,26 @@
         </div>
     </div>
     
+    <!-- 配置弹窗 -->
     <div class="modal-overlay" id="settingsModal">
         <div class="modal">
-            <h3 style="margin:0 0 20px 0; color:var(--text-main); font-size:1.4rem;">配置中心</h3>
+            <h3 style="margin:0 0 20px 0;">配置中心</h3>
             <div class="tabs">
-                <div class="tab active" onclick="switchTab('tab-meme', this)">图库设置</div>
-                <div class="tab" onclick="switchTab('tab-logic', this)">防抖逻辑</div>
+                <div class="tab active" onclick="switchTab('tab-meme', this)">图库</div>
+                <div class="tab" onclick="switchTab('tab-logic', this)">逻辑</div>
             </div>
-
             <div id="tab-meme" class="tab-content active">
-                <div class="form-group"><label>发图概率 (%)</label><input type="number" id="conf_reply_prob"><div class="hint">每句话带图的可能性</div></div>
-                <div class="form-group"><label>存图冷却 (秒)</label><input type="number" id="conf_auto_save_cooldown"><div class="hint">防止机疯狂捡垃圾</div></div>
-                <div class="form-group"><label>鉴图 Prompt</label>
-                    <textarea id="conf_ai_prompt" style="height:120px; font-family:monospace; font-size:0.85rem;"></textarea>
-                    <div class="hint">保留 <b>{context_text}</b>。写入你的禁止规则。</div>
-                </div>
-                <button class="btn-primary" style="background:#fff7ed; color:#d97706; border:1px dashed #fdba74; box-shadow:none;" onclick="slimImages()">⚡ 一键瘦身 (压缩旧图)</button>
+                <div class="form-group"><label>发图概率 (%)</label><input type="number" id="conf_reply_prob"></div>
+                <div class="form-group"><label>存图冷却 (秒)</label><input type="number" id="conf_auto_save_cooldown"></div>
+                <div class="form-group"><label>鉴图 Prompt</label><textarea id="conf_ai_prompt" style="height:100px; font-family:monospace; font-size:0.85rem;"></textarea></div>
+                <button class="btn-primary" style="background:#fff7ed; color:#d97706;" onclick="slimImages()">⚡ 一键瘦身</button>
             </div>
-
             <div id="tab-logic" class="tab-content">
-                <div class="form-group"><label>防抖等待 (秒)</label><input type="number" id="conf_debounce_time" step="0.5"><div class="hint">停止打字多久后回复</div></div>
-                <div class="form-group"><label>基础延迟 (秒)</label><input type="number" id="conf_delay_base" step="0.1"><div class="hint">分段发送的最短间隔</div></div>
-                <div class="form-group"><label>字数延迟系数</label><input type="number" id="conf_delay_factor" step="0.01"><div class="hint">每多一个字增加多少秒</div></div>
+                <div class="form-group"><label>防抖等待 (秒)</label><input type="number" id="conf_debounce_time"></div>
+                <div class="form-group"><label>基础延迟 (秒)</label><input type="number" id="conf_delay_base"></div>
+                <div class="form-group"><label>字数延迟系数</label><input type="number" id="conf_delay_factor"></div>
             </div>
-
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:25px;">
+            <div style="display:flex; justify-content:space-between; margin-top:25px;">
                 <button class="btn-ghost" onclick="closeSettings()">取消</button>
                 <button class="btn-primary" onclick="saveSettings()" style="width:auto; margin-top:0; padding:12px 30px;">保存</button>
             </div>
@@ -357,47 +250,32 @@
         let longPressTimer;
 
         function init() { process(); render(); }
-        
         function process() {
             let list = Object.entries(rawData).reverse();
             if (state.filter !== 'all') list = list.filter(x => (x[1].source||'manual') === state.filter);
             if (state.search) list = list.filter(x => (x[1].tags||"").toLowerCase().includes(state.search.toLowerCase()));
             state.items = list; state.page = 1; updatePage();
         }
-
         function render() {
             const el = document.getElementById('gallery'); el.innerHTML = '';
             const start = (state.page - 1) * state.pageSize;
             const currentItems = state.items.slice(start, start + state.pageSize);
-            
-            if(currentItems.length === 0) {
-                el.innerHTML = `<div style="grid-column:1/-1; text-align:center; color:#94a3b8; padding:40px;">这里什么都没有... 🍂</div>`;
-            }
-
+            if(currentItems.length === 0) el.innerHTML = `<div style="grid-column:1/-1; text-align:center; color:#94a3b8; padding:40px;">这里什么都没有... 🍂</div>`;
             currentItems.forEach(([fn, info]) => {
                 const sel = state.selected.has(fn);
                 const div = document.createElement('div');
                 div.className = `card ${sel ? 'selected' : ''}`;
-                
-                div.addEventListener('touchstart', () => {
-                    longPressTimer = setTimeout(() => { enterSelectMode(fn); }, 500);
-                });
+                div.addEventListener('touchstart', () => { longPressTimer = setTimeout(() => { enterSelectMode(fn); }, 500); });
                 const cancelLong = () => clearTimeout(longPressTimer);
-                div.addEventListener('touchend', cancelLong);
-                div.addEventListener('touchmove', cancelLong);
-                
+                div.addEventListener('touchend', cancelLong); div.addEventListener('touchmove', cancelLong);
                 div.onclick = () => cardClick(fn);
-                
                 div.innerHTML = `
                     <div class="badge ${info.source==='auto'?'badge-auto':'badge-manual'}">${info.source==='auto'?'机':'我'}</div>
                     <div class="check-mark">✓</div>
                     <img src="/images/${fn}" loading="lazy" alt="meme">
                     <div class="card-body">
                         <div class="tag-text">${info.tags||"未分类"}</div>
-                        <div class="source-tag">
-                            <span>${info.source==='auto'?'自动进货':'手动上传'}</span>
-                            <span style="font-size:1.2rem; padding:5px; margin:-5px;" onclick="openEdit('${fn}', event)">✏️</span>
-                        </div>
+                        <div class="source-tag"><span>${info.source==='auto'?'自动':'手动'}</span><span onclick="openEdit('${fn}', event)">✏️</span></div>
                     </div>`;
                 el.appendChild(div);
             });
@@ -406,149 +284,90 @@
         
         function enterSelectMode(fn) {
             if (state.selMode) return;
-            state.selMode = true;
-            document.body.classList.add('selection-mode');
-            state.selected.add(fn);
-            if(navigator.vibrate) navigator.vibrate(50);
-            render();
+            state.selMode = true; document.body.classList.add('selection-mode');
+            state.selected.add(fn); if(navigator.vibrate) navigator.vibrate(50); render();
         }
-
         function cardClick(fn) {
             if (state.selMode) {
                 if (state.selected.has(fn)) state.selected.delete(fn); else state.selected.add(fn);
-                if(state.selected.size === 0) exitSelectMode(); 
-                else render();
-            } else {
-                window.open(`/images/${fn}`, '_blank');
-            }
+                if(state.selected.size === 0) exitSelectMode(); else render();
+            } else window.open(`/images/${fn}`, '_blank');
         }
-        
-        function exitSelectMode() {
-            state.selMode = false; state.selected.clear();
-            document.body.classList.remove('selection-mode'); render();
-        }
-
+        function exitSelectMode() { state.selMode = false; state.selected.clear(); document.body.classList.remove('selection-mode'); render(); }
         function toggleSelectAll() {
             const currentIds = state.items.map(x => x[0]);
             const allSelected = currentIds.every(id => state.selected.has(id));
-            if (allSelected) state.selected.clear(); else currentIds.forEach(id => state.selected.add(id));
-            render();
+            if (allSelected) state.selected.clear(); else currentIds.forEach(id => state.selected.add(id)); render();
         }
-
         function updateBtn() { document.getElementById('batchDelBtn').innerText = `删除 (${state.selected.size})`; }
-
-        // 改为弹窗控制，不再是抽屉
         function openUploadModal() { document.getElementById('uploadModal').style.display = 'flex'; }
         function closeUploadModal() { document.getElementById('uploadModal').style.display = 'none'; }
-        
-        function showToast(msg) { 
-            const t = document.getElementById('toast'); 
-            t.innerText = msg; t.classList.add('show'); 
-            setTimeout(()=>t.classList.remove('show'), 2000); 
-        }
-
-        function handleFileSelect() { 
-            const n = document.getElementById('fileInput').files.length; 
-            if(n) showToast(`已准备 ${n} 张图片`); 
-        }
+        function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 2000); }
+        function handleFileSelect() { const n = document.getElementById('fileInput').files.length; if(n) showToast(`已选 ${n} 张`); }
         
         async function batchUpload() {
             const files = document.getElementById('fileInput').files;
             if(!files.length) return showToast('请先选择图片');
             const tag = document.getElementById('globalTagInput').value;
-            
             const btn = document.getElementById('startUploadBtn');
             const status = document.getElementById('uploadStatus');
             const bar = document.getElementById('progressBar');
             const fill = document.getElementById('progressFill');
-            
             btn.disabled = true; status.style.display = 'block'; bar.style.display = 'block';
-            
             for(let i=0; i<files.length; i++) {
                 const percent = Math.round(((i) / files.length) * 100);
                 fill.style.width = percent + '%';
                 status.innerText = `正在上传 ${i+1} / ${files.length} ...`;
-                
                 const fd = new FormData(); fd.append('file', files[i]); fd.append('tags', tag||"未分类");
-                await fetch('/upload', {method:'POST', body:fd});
+                await fetch('/upload?token=admin123', {method:'POST', body:fd});
             }
-            fill.style.width = '100%'; status.innerText = '🎉 完成！即将刷新...';
+            fill.style.width = '100%'; status.innerText = '🎉 完成！刷新中...';
             setTimeout(() => location.reload(), 1000);
         }
 
-        function backupData() { 
-            window.location.href = '/backup'; 
-            showToast('📦 正在打包下载...'); 
-        }
-
+        function backupData() { window.location.href = '/backup?token=admin123'; showToast('📦 正在打包...'); }
         function handleRestoreFile() {
             const f = document.getElementById('restoreInput').files[0];
             if(!f) return;
-            if(!confirm('⚠️ 恢复将覆盖现有所有图片和数据，确定吗？')) return;
-
-            const modal = document.getElementById('restoreModal');
-            const fill = document.getElementById('restoreProgressFill');
-            const text = document.getElementById('restorePercent');
-            
-            modal.style.display = 'flex'; 
-
+            if(!confirm('⚠️ 恢复将覆盖现有数据，确定吗？')) return;
+            document.getElementById('restoreModal').style.display = 'flex';
             const fd = new FormData(); fd.append('file', f);
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', '/restore', true);
-
-            xhr.upload.onprogress = function(e) {
-                if (e.lengthComputable) {
-                    const percent = Math.round((e.loaded / e.total) * 100);
-                    fill.style.width = percent + '%';
-                    text.innerText = percent + '%';
-                }
-            };
-
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    text.innerText = '解压中...';
-                    setTimeout(() => { alert('✅ 恢复成功！'); location.reload(); }, 500);
-                } else {
-                    alert('❌ 失败: ' + xhr.responseText);
-                    modal.style.display = 'none';
-                }
-            };
-            xhr.onerror = () => { alert('❌ 网络错误'); modal.style.display = 'none'; };
-            xhr.send(fd);
+            fetch('/restore?token=admin123', {method:'POST', body:fd})
+            .then(r => {
+                if(r.ok) { alert('✅ 恢复成功！'); location.reload(); }
+                else alert('❌ 失败');
+            }).catch(()=>alert('❌ 网络错误')).finally(()=>document.getElementById('restoreModal').style.display = 'none');
         }
 
         function switchTab(id, el) {
             document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); el.classList.add('active');
             document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active')); document.getElementById(id).classList.add('active');
         }
-        
         async function openSettings() {
-            showToast('加载配置...');
-            const c = await (await fetch('/get_config')).json();
-            ['reply_prob','auto_save_cooldown','debounce_time','delay_base','delay_factor'].forEach(k => {
-                if(document.getElementById(`conf_${k}`)) document.getElementById(`conf_${k}`).value = c[k]??0;
-            });
-            document.getElementById('conf_ai_prompt').value = c['ai_prompt'] || "";
-            document.getElementById('settingsModal').style.display = 'flex';
+            try {
+                const c = await (await fetch('/get_config?token=admin123')).json();
+                ['reply_prob','auto_save_cooldown','debounce_time','delay_base','delay_factor'].forEach(k => {
+                    if(document.getElementById(`conf_${k}`)) document.getElementById(`conf_${k}`).value = c[k]??0;
+                });
+                document.getElementById('conf_ai_prompt').value = c['ai_prompt'] || "";
+                document.getElementById('settingsModal').style.display = 'flex';
+            } catch(e) { showToast('加载配置失败'); }
         }
-        
         function closeSettings() { document.getElementById('settingsModal').style.display = 'none'; }
-        
         async function saveSettings() {
             const conf = {};
             ['reply_prob','auto_save_cooldown','debounce_time','delay_base','delay_factor'].forEach(k => {
                 conf[k] = parseFloat(document.getElementById(`conf_${k}`).value);
             });
             conf['ai_prompt'] = document.getElementById('conf_ai_prompt').value;
-            await fetch('/update_config', {method:'POST', body:JSON.stringify(conf)});
+            await fetch('/update_config?token=admin123', {method:'POST', body:JSON.stringify(conf)});
             closeSettings(); showToast('配置已保存');
         }
-
         async function slimImages() {
-            if(!confirm('⚡ 瘦身操作会扫描所有图片并压缩，可能需要几秒钟，确定吗？')) return;
+            if(!confirm('⚡ 瘦身操作会压缩所有图片，确定吗？')) return;
             showToast('正在处理...');
             try {
-                const res = await (await fetch('/slim_images', {method:'POST'})).text();
+                const res = await (await fetch('/slim_images?token=admin123', {method:'POST'})).text();
                 alert(res);
             } catch(e) { alert('处理失败'); }
         }
@@ -557,23 +376,18 @@
         function handleSearch() { state.search = document.getElementById('searchInput').value; process(); render(); }
         function changePage(d) { const max = Math.ceil(state.items.length/state.pageSize)||1; const n = state.page+d; if(n>=1 && n<=max) { state.page=n; render(); window.scrollTo(0,0); } }
         function updatePage() { document.getElementById('pageInfo').innerText = `${state.page} / ${Math.ceil(state.items.length/state.pageSize)||1}`; document.getElementById('pagination').style.display = state.items.length ? 'flex' : 'none'; }
-        
         function openEdit(fn, e) { e.stopPropagation(); state.editingFile = fn; document.getElementById('editTagInput').value = rawData[fn].tags; document.getElementById('editModal').style.display = 'flex'; }
         function closeEdit() { document.getElementById('editModal').style.display = 'none'; }
         async function confirmEdit() {
             const tag = document.getElementById('editTagInput').value;
-            await fetch('/update_tag', {method:'POST', body:JSON.stringify({filename:state.editingFile, tags:tag})});
-            rawData[state.editingFile].tags = tag;
-            closeEdit(); showToast('标签已更新'); process(); render();
+            await fetch('/update_tag?token=admin123', {method:'POST', body:JSON.stringify({filename:state.editingFile, tags:tag})});
+            rawData[state.editingFile].tags = tag; closeEdit(); showToast('已更新'); process(); render();
         }
-        
         async function deleteBatch() {
-            if(!confirm(`🗑️ 确定永久删除选中的 ${state.selected.size} 张图片吗？`)) return;
-            await fetch('/batch_delete', {method:'POST', body:JSON.stringify({filenames:Array.from(state.selected)})});
-            state.selected.forEach(fn => delete rawData[fn]);
-            exitSelectMode(); process(); render(); showToast('删除成功');
+            if(!confirm(`🗑️ 确定删除 ${state.selected.size} 张图片吗？`)) return;
+            await fetch('/batch_delete?token=admin123', {method:'POST', body:JSON.stringify({filenames:Array.from(state.selected)})});
+            state.selected.forEach(fn => delete rawData[fn]); exitSelectMode(); process(); render(); showToast('删除成功');
         }
-
         init();
     </script>
 </body>
