@@ -678,10 +678,22 @@ class MemeMaster(Star):
         if not self.check_auth(r): return web.Response(status=403)
         b=io.BytesIO()
         with zipfile.ZipFile(b,'w',zipfile.ZIP_DEFLATED) as z:
+            # 1. 备份图片
             for root,_,files in os.walk(self.img_dir): 
                 for f in files: z.write(os.path.join(root,f),f"images/{f}")
-            z.write(self.data_file,"memes.json"); z.write(self.config_file,"config.json")
-        b.seek(0); return web.Response(body=b, headers={'Content-Disposition':'attachment; filename="bk.zip"'})
+            
+            # 2. 备份配置文件和索引
+            if os.path.exists(self.data_file): z.write(self.data_file,"memes.json")
+            if os.path.exists(self.config_file): z.write(self.config_file,"config.json")
+            
+            # 3. [补回] 备份长期记忆
+            if os.path.exists(self.memory_file): z.write(self.memory_file, "memory.txt")
+            
+            # 4. [可选] 备份当前的对话缓存(Buffer)，防止重启后丢失刚才聊的内容
+            if os.path.exists(self.buffer_file): z.write(self.buffer_file, "buffer.json")
+
+        b.seek(0)
+        return web.Response(body=b, headers={'Content-Disposition':'attachment; filename="meme_backup.zip"'})
     # ==========================
     # 修复版：备份恢复函数
     # ==========================
@@ -697,29 +709,30 @@ class MemeMaster(Star):
             if not field or field.name != 'file': 
                 return web.Response(status=400, text="Invalid file field")
             
-            # 读取所有数据到内存
             file_data = await field.read()
             if not file_data:
                 return web.Response(status=400, text="Empty file")
 
             print(f"📦 [Meme] 收到备份包，大小: {len(file_data)} bytes")
 
-            # 3. 定义解压动作 (普通函数)
+            # 3. 解压动作
             def unzip_action():
                 with zipfile.ZipFile(io.BytesIO(file_data), 'r') as z:
                     z.extractall(self.base_dir)
 
-            # 4. 扔给线程池去跑
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(self.executor, unzip_action)
 
-            # 5. 重新加载配置和数据
+            # 4. [关键] 重新加载所有数据到内存
             self.data = self.load_data()
             self.local_config = self.load_config()
-            # 重新构建索引 (异步)
+            self.current_summary = self.load_memory() # <--- 这一步让记忆立即生效
+            self.chat_history_buffer = self.load_buffer_from_disk() # <--- 恢复聊天进度
+
+            # 重新构建图片索引
             asyncio.create_task(self._init_image_hashes())
 
-            print("✅ [Meme] 备份恢复成功！")
+            print("✅ [Meme] 备份恢复成功！记忆已刷新。")
             return web.Response(text="ok")
 
         except Exception as e:
