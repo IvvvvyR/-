@@ -697,11 +697,49 @@ class MemeMaster(Star):
                 for f in files: z.write(os.path.join(root,f),f"images/{f}")
             z.write(self.data_file,"memes.json"); z.write(self.config_file,"config.json")
         b.seek(0); return web.Response(body=b, headers={'Content-Disposition':'attachment; filename="bk.zip"'})
-    async def h_restore(self,r):
-        if not self.check_auth(r): return web.Response(status=403)
-        rd = await r.multipart(); f = await rd.next()
-        if f.name != 'file': return web.Response(status=400)
-        dat = await f.read()
+    # ==========================
+    # 修复版：备份恢复函数
+    # ==========================
+    async def h_restore(self, r):
+        # 1. 鉴权
+        if not self.check_auth(r): 
+            return web.Response(status=403, text="Forbidden")
+        
+        try:
+            # 2. 读取文件
+            reader = await r.multipart()
+            field = await reader.next()
+            if not field or field.name != 'file': 
+                return web.Response(status=400, text="Invalid file field")
+            
+            # 读取所有数据到内存
+            file_data = await field.read()
+            if not file_data:
+                return web.Response(status=400, text="Empty file")
+
+            print(f"📦 [Meme] 收到备份包，大小: {len(file_data)} bytes")
+
+            # 3. 定义解压动作 (普通函数)
+            def unzip_action():
+                with zipfile.ZipFile(io.BytesIO(file_data), 'r') as z:
+                    z.extractall(self.base_dir)
+
+            # 4. 扔给线程池去跑
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(self.executor, unzip_action)
+
+            # 5. 重新加载配置和数据
+            self.data = self.load_data()
+            self.local_config = self.load_config()
+            # 重新构建索引 (异步)
+            asyncio.create_task(self._init_image_hashes())
+
+            print("✅ [Meme] 备份恢复成功！")
+            return web.Response(text="ok")
+
+        except Exception as e:
+            print(f"❌ [Meme] 恢复失败: {e}")
+            return web.Response(status=500, text=f"Error: {str(e)}")
     # ==========================
     # [补回] 图片瘦身处理函数
     # ==========================
