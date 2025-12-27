@@ -66,26 +66,33 @@ class MemeMaster(Star):
     def __del__(self):
         self.running = False 
 
+    
     # ===============================================================
-    # 核心 1：输入处理 (防抖 + 多图 + 注入)
+    # 核心 1：输入处理 (防抖 + 多图 + 注入) - 修复版
     # ===============================================================
     async def _debounce_timer(self, uid: str, duration: float):
         try:
             await asyncio.sleep(duration)
             if uid in self.sessions: 
                 self.sessions[uid]['flush_event'].set()
-        except asyncio.CancelledError: pass
+        except asyncio.CancelledError: 
+            pass
 
     @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE, priority=50)
     @filter.event_message_type(EventMessageType.GROUP_MESSAGE, priority=50)
     async def handle_input(self, event: AstrMessageEvent):
+        # 跳过自己的消息
         try:
-            if str(event.message_obj.sender.user_id) == str(self.context.get_current_provider_bot().self_id): return
-        except: pass
+            if str(event.message_obj.sender.user_id) == str(self.context.get_current_provider_bot().self_id): 
+                return
+        except: 
+            pass
 
         msg_str = (event.message_str or "").strip()
         img_urls = self._get_all_img_urls(event)
         uid = event.unified_msg_origin
+
+        print(f"📨 [Meme] 收到消息 uid={uid}, 文本长度={len(msg_str)}, 图片数={len(img_urls)}")
 
         # [关键] 更新活跃状态，供主动聊天使用
         self.last_active_time = time.time()
@@ -97,108 +104,39 @@ class MemeMaster(Star):
             cooldown = self.local_config.get("auto_save_cooldown", 60)
             if time.time() - getattr(self, "last_auto_save_time", 0) > cooldown:
                 self.last_auto_save_time = time.time()
-                print(f"🕵️ [Meme] 触发存图冷却，后台处理 {len(img_urls)} 张图...")
+                print(f"🕵️ [Meme] 触发自动鉴图，后台处理 {len(img_urls)} 张图...")
                 for url in img_urls:
                     asyncio.create_task(self.ai_evaluate_image(url))
 
         # 2. 指令穿透
         if msg_str.startswith(("/", "！", "!")):
+            print(f"⚡ [Meme] 检测到指令消息，直接穿透")
             if uid in self.sessions:
-                if self.sessions[uid].get('timer_task'): self.sessions[uid]['timer_task'].cancel()
-                self.sessions[uid]['flush_event'].set()
-            return
-
-        # 3. 防抖
-        debounce_time = self.local_config.get("debounce_time", 3.0)
-        if debounce_time <= 0: return 
-
-        if uid in self.sessions:
-            s = self.sessions[uid]
-            if msg_str: s['buffer'].append(msg_str)
-            if img_urls: s['images'].extend(img_urls)
-            if s.get('timer_task'): s['timer_task'].cancel()
-            s['timer_task'] = asyncio.create_task(self._debounce_timer(uid, debounce_time))
-            event.stop_event()
-            return
-
-        flush_event = asyncio.Event()
-        timer_task = asyncio.create_task(self._debounce_timer(uid, debounce_time))
-        self.sessions[uid] = {
-            'buffer': [msg_str] if msg_str else [],
-            'images': img_urls if img_urls else [],
-            'flush_event': flush_event,
-            'timer_task': timer_task
-        }
-        
-        print(f"🕒 [Meme] 消息防抖中 ({debounce_time}s)...")
-        await flush_event.wait()
-
-        if uid not in self.sessions: return
-        s = self.sessions.pop(uid)
-        merged_text = " ".join(s['buffer']).strip()
-        
-        if not merged_text and not s['images']: return
-
-        # 4. 记录 Buffer
-        img_mark = f" [Image*{len(s['images'])}]" if s['images'] else ""
-        self.chat_history_buffer.append(f"User: {merged_text}{img_mark}")
-        self.save_buffer_to_disk()
-
-        # 5. 上下文注入
-        self.msg_count += 1
-        inject_interval = self.local_config.get("memory_interval", 20)
-        should_inject_memory = (self.msg_count % inject_interval == 0) or (self.msg_count == 1)
-        
-        time_info = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-        system_note_parts = [f"Time: {time_info}"]
-        
-        if should_inject_memory and self.current_summary:
-            print(f"🧠 [Meme] 注入长期记忆...")
-    @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE, priority=50)
-    @filter.event_message_type(EventMessageType.GROUP_MESSAGE, priority=50)
-    async def handle_input(self, event: AstrMessageEvent):
-        try:
-            if str(event.message_obj.sender.user_id) == str(self.context.get_current_provider_bot().self_id): return
-        except: pass
-
-        msg_str = (event.message_str or "").strip()
-        img_urls = self._get_all_img_urls(event)
-        uid = event.unified_msg_origin
-
-        self.last_active_time = time.time()
-        self.last_session_id = event.session_id
-        self.last_uid = uid
-
-        # 1. 自动进货
-        if img_urls and not msg_str.startswith("/"):
-            cooldown = self.local_config.get("auto_save_cooldown", 60)
-            if time.time() - getattr(self, "last_auto_save_time", 0) > cooldown:
-                self.last_auto_save_time = time.time()
-                print(f"🕵️ [Meme] 收到图片，触发后台鉴图 (数量: {len(img_urls)})...")
-                for url in img_urls:
-                    asyncio.create_task(self.ai_evaluate_image(url))
-
-        # 2. 指令穿透
-        if msg_str.startswith(("/", "！", "!")):
-            if uid in self.sessions:
-                if self.sessions[uid].get('timer_task'): self.sessions[uid]['timer_task'].cancel()
+                if self.sessions[uid].get('timer_task'): 
+                    self.sessions[uid]['timer_task'].cancel()
                 self.sessions[uid]['flush_event'].set()
             return
 
         # 3. 防抖逻辑
         debounce_time = self.local_config.get("debounce_time", 3.0)
-        if debounce_time <= 0: return 
+        if debounce_time <= 0: 
+            print(f"⏭️ [Meme] 防抖已禁用，直接放行")
+            return 
 
+        # 如果已经有session，追加内容并重置计时器
         if uid in self.sessions:
             s = self.sessions[uid]
             if msg_str: s['buffer'].append(msg_str)
             if img_urls: s['images'].extend(img_urls)
-            if s.get('timer_task'): s['timer_task'].cancel()
+            if s.get('timer_task'): 
+                s['timer_task'].cancel()
             s['timer_task'] = asyncio.create_task(self._debounce_timer(uid, debounce_time))
             event.stop_event()
-            print(f"🔄 [Meme] 消息追加，重置防抖计时...")
+            print(f"🔄 [Meme] 消息追加到现有session，重置防抖计时器 (当前buffer: {len(s['buffer'])}条)")
             return
 
+        # 创建新session
+        print(f"🆕 [Meme] 创建新防抖session，等待 {debounce_time}秒...")
         flush_event = asyncio.Event()
         timer_task = asyncio.create_task(self._debounce_timer(uid, debounce_time))
         self.sessions[uid] = {
@@ -208,16 +146,22 @@ class MemeMaster(Star):
             'timer_task': timer_task
         }
         
-        print(f"⏳ [Meme] 新消息进入，防抖倒计时开始 ({debounce_time}s)...")
+        # 等待防抖结束
         await flush_event.wait()
+        print(f"⏰ [Meme] 防抖倒计时结束，准备处理消息")
 
-        if uid not in self.sessions: return
+        if uid not in self.sessions: 
+            print(f"⚠️ [Meme] Session已被清理，跳过处理")
+            return
+            
         s = self.sessions.pop(uid)
         merged_text = " ".join(s['buffer']).strip()
         
-        print(f"✅ [Meme] 防抖结束，准备处理发送逻辑")
+        if not merged_text and not s['images']: 
+            print(f"🚫 [Meme] 合并后内容为空，跳过")
+            return
 
-        if not merged_text and not s['images']: return
+        print(f"✅ [Meme] 防抖完成，合并了 {len(s['buffer'])}条文本 + {len(s['images'])}张图")
 
         # 4. 记录 Buffer
         img_mark = f" [Image*{len(s['images'])}]" if s['images'] else ""
@@ -231,34 +175,35 @@ class MemeMaster(Star):
         should_inject_memory = (self.msg_count % inject_interval == 0) or (self.msg_count == 1)
         
         # 打印信息库条数累积
-        print(f"📊 [Meme] 信息库累积中: 当前{len(self.chat_history_buffer)}条 / 阈值{summary_threshold}条 (本轮计数:{self.msg_count})")
+        print(f"📊 [Meme] 信息库: {len(self.chat_history_buffer)}/{summary_threshold}条 (本轮#{self.msg_count})")
 
-        # [修改] 使用新的时间函数
         time_info = self.get_full_time_str()
         system_note_parts = [f"Time: {time_info}"]
         
         if should_inject_memory and self.current_summary:
-            print(f"🧠 [Meme] 触发注入机制：已将长期记忆注入当前Prompt")
+            print(f"🧠 [Meme] 注入长期记忆 (长度: {len(self.current_summary)} chars)")
             system_note_parts.append(f"Long-term Memory: {self.current_summary}")
         
+        # 随机表情包提示
         if random.randint(1, 100) <= self.local_config.get("reply_prob", 50):
             all_tags = [v.get("tags", "").split(":")[0].strip() for v in self.data.values()]
             if all_tags:
                 hints = random.sample(all_tags, min(15, len(all_tags)))
                 hint_str = " ".join([f"<MEME:{h}>" for h in hints])
                 system_note_parts.append(f"Meme Hints: {hint_str}")
+                print(f"🎲 [Meme] 本次提供 {len(hints)} 个表情包提示")
         
         system_note_str = " | ".join(system_note_parts)
         final_text = f"{merged_text}\n\n(System Context: {system_note_str})"
         
-        # 6. 放行
+        # 6. 重新组装消息链并放行
         chain = [Plain(final_text)]
         for url in s['images']:
             chain.append(Image.fromURL(url))
             
         event.message_str = final_text
         event.message_obj.message = chain
-        print(f"🚀 [Meme] 上下文组装完毕，放行给 AstrBot 核心处理")
+        print(f"🚀 [Meme] 消息处理完成，放行！")
 
     # ===============================================================
     # 核心 2：输出处理 (分段 + 表情包)
@@ -582,6 +527,10 @@ class MemeMaster(Star):
             if s > score: score = s; best = f
         if score > 0.4: return os.path.join(self.img_dir, best)
         return None
+    
+    def get_full_time_str(self):
+    now = datetime.datetime.now()
+    return now.strftime('%Y-%m-%d %H:%M')
 
     def load_config(self): 
         default = {"web_port":5000, "debounce_time":3.0, "reply_prob":50, "auto_save_cooldown":60, "memory_interval": 20, "summary_threshold": 40, "proactive_interval": 0}
@@ -589,6 +538,7 @@ class MemeMaster(Star):
             try: default.update(json.load(open(self.config_file)))
             except: pass
         return default
+        
     def save_config(self): json.dump(self.local_config, open(self.config_file,"w"), indent=2)
     def load_data(self): return json.load(open(self.data_file)) if os.path.exists(self.data_file) else {}
     def save_data(self): json.dump(self.data, open(self.data_file,"w"), ensure_ascii=False)
@@ -764,8 +714,16 @@ class MemeMaster(Star):
             
         print(f"✅ [Meme] 瘦身完成，优化了 {count} 张图片")
         return web.Response(text=f"优化了 {count} 张")
-        def unzip(): 
-            with zipfile.ZipFile(io.BytesIO(dat),'r') as z: z.extractall(self.base_dir)
-        await asyncio.get_running_loop().run_in_executor(self.executor, unzip)
-        self.data=self.load_data(); self.local_config=self.load_config()
+        def unzip_action():
+            with zipfile.ZipFile(io.BytesIO(file_data), 'r') as z:
+                z.extractall(self.base_dir)
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self.executor, unzip_action)
+
+        self.data = self.load_data()
+        self.local_config = self.load_config()
+        asyncio.create_task(self._init_image_hashes())
+
+        print("✅ [Meme] 备份恢复成功！")
         return web.Response(text="ok")
