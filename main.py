@@ -20,7 +20,7 @@ from astrbot.core.message.components import Image, Plain
 
 print("DEBUG: MemeMaster Pro (Final Apology Version) Loaded")
 
-@register("vv_meme_master", "MemeMaster", "最终谢罪版", "4.3.0")
+@register("vv_meme_master", "Vvivloy", "多功能", "4.3.0")
 class MemeMaster(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
