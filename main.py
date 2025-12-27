@@ -12,6 +12,12 @@ import datetime
 from concurrent.futures import ThreadPoolExecutor
 from aiohttp import web
 from PIL import Image as PILImage
+# 阴历支持
+try:
+    from lunar_python import Solar
+    HAS_LUNAR = True
+except ImportError:
+    HAS_LUNAR = False
 
 from astrbot.api.star import Context, Star, register
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
@@ -528,10 +534,6 @@ class MemeMaster(Star):
         if score > 0.4: return os.path.join(self.img_dir, best)
         return None
     
-    def get_full_time_str(self):
-    now = datetime.datetime.now()
-    return now.strftime('%Y-%m-%d %H:%M')
-
     def load_config(self): 
         default = {"web_port":5000, "debounce_time":3.0, "reply_prob":50, "auto_save_cooldown":60, "memory_interval": 20, "summary_threshold": 40, "proactive_interval": 0}
         if os.path.exists(self.config_file):
@@ -714,16 +716,3 @@ class MemeMaster(Star):
             
         print(f"✅ [Meme] 瘦身完成，优化了 {count} 张图片")
         return web.Response(text=f"优化了 {count} 张")
-        def unzip_action():
-            with zipfile.ZipFile(io.BytesIO(file_data), 'r') as z:
-                z.extractall(self.base_dir)
-
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self.executor, unzip_action)
-
-        self.data = self.load_data()
-        self.local_config = self.load_config()
-        asyncio.create_task(self._init_image_hashes())
-
-        print("✅ [Meme] 备份恢复成功！")
-        return web.Response(text="ok")
