@@ -24,9 +24,9 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import EventMessageType
 from astrbot.core.message.components import Image, Plain
 
-print(">>> [Meme] 插件主文件 v18 (Split Handlers) 已被系统加载 <<<", flush=True)
+print(">>> [Meme] 插件主文件 v19 (Fix Crash) 已被系统加载 <<<", flush=True)
 
-@register("vv_meme_master", "Vvivloy", "防抖/图库/记忆/思考链/静默模式", "5.8.0")
+@register("vv_meme_master", "Vvivloy", "防抖/图库/记忆/思考链/静默模式", "5.9.0")
 class MemeMaster(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -77,35 +77,41 @@ class MemeMaster(Star):
         except asyncio.CancelledError: pass
 
     # ==========================
-    # 核心修改：拆分入口，防止装饰器冲突
+    # 入口分流
     # ==========================
-    
-    # 入口1：私聊 (优先级 1)
     @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE, priority=1)
     async def handle_private(self, event: AstrMessageEvent):
-        print(">>> [调试] 捕获私聊消息", flush=True)
         await self._master_handler(event)
 
-    # 入口2：群聊 (优先级 1)
     @filter.event_message_type(EventMessageType.GROUP_MESSAGE, priority=1)
     async def handle_group(self, event: AstrMessageEvent):
-        print(">>> [调试] 捕获群聊消息", flush=True)
         await self._master_handler(event)
 
-    # 统一处理逻辑
+    # ==========================
+    # 主逻辑 (已修复崩溃点)
+    # ==========================
     async def _master_handler(self, event: AstrMessageEvent):
-        print(f">>> [调试] 进入主逻辑处理. Sender: {event.message_obj.sender.user_id}", flush=True)
+        print(f">>> [调试] 正在处理消息...", flush=True)
 
-        # 1. 基础防爆 & 机器人自检
+        # 1. 基础防爆 & 机器人自检 (修复版)
         try:
             user_id = str(event.message_obj.sender.user_id)
-            provider_bot = self.context.get_current_provider_bot()
-            if provider_bot and user_id == str(provider_bot.self_id): 
+            
+            # ★★★ 修复点：更安全的获取方式，且出错不退出 ★★★
+            # 尝试通过多种方式获取 Bot ID，获取不到就跳过检查，绝不报错退出
+            bot_id = None
+            if hasattr(self.context, 'get_current_provider_bot'):
+                bot = self.context.get_current_provider_bot()
+                if bot: bot_id = str(bot.self_id)
+            
+            if bot_id and user_id == bot_id: 
                 print("⚠️ [调试] 忽略自身消息", flush=True)
                 return
+                
         except Exception as e:
-            print(f"❌ [调试] ID检测错误: {e}", flush=True)
-            return
+            # ★★★ 关键：这里只打印警告，不再 return！ ★★★
+            print(f"⚠️ [调试] 自检跳过 (非致命错误): {e}", flush=True)
+            # pass 继续运行！
 
         try:
             self.check_config_reload()
