@@ -24,9 +24,9 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import EventMessageType
 from astrbot.core.message.components import Image, Plain
 
-print(">>> [Meme] 插件主文件 v20 (Fix msg_count) 已被系统加载 <<<", flush=True)
+print(">>> [Meme] 插件主文件 v23 (Logic Perfected) 已被系统加载 <<<", flush=True)
 
-@register("vv_meme_master", "Vvivloy", "防抖/图库/记忆/思考链/静默模式", "6.0.0")
+@register("vv_meme_master", "Vvivloy", "防抖/图库/记忆/思考链/静默模式", "6.3.0")
 class MemeMaster(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -52,14 +52,14 @@ class MemeMaster(Star):
         self.current_summary = self.load_memory()
         self.img_hashes = {} 
         self.sessions = {} 
-        
-        # ★★★ 补回了这个漏掉的变量！ ★★★
         self.msg_count = 0 
         
         self.is_summarizing = False
         self.last_auto_save_time = 0
         self.last_active_time = time.time()
-        self.pair_map = {'“': '”', '《': '》', '（': '）', '(': ')', '[': ']', '{': '}'}
+        
+        self.pair_map = {'“': '”', '《': '》', '（': '）', '(': ')', '"': '"', "'": "'"}
+        self.split_chars = "\n。？！?!，,;；"
 
         try:
             loop = asyncio.get_running_loop()
@@ -80,9 +80,6 @@ class MemeMaster(Star):
                 self.sessions[uid]['flush_event'].set()
         except asyncio.CancelledError: pass
 
-    # ==========================
-    # 入口分流 (保持 v18/19 的稳定结构)
-    # ==========================
     @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE, priority=1)
     async def handle_private(self, event: AstrMessageEvent):
         await self._master_handler(event)
@@ -95,18 +92,15 @@ class MemeMaster(Star):
     # 主逻辑
     # ==========================
     async def _master_handler(self, event: AstrMessageEvent):
-        # 1. 基础防爆 & 机器人自检
+        # 1. 基础防爆 & 自检
         try:
             user_id = str(event.message_obj.sender.user_id)
             bot_id = None
             if hasattr(self.context, 'get_current_provider_bot'):
                 bot = self.context.get_current_provider_bot()
                 if bot: bot_id = str(bot.self_id)
-            
             if bot_id and user_id == bot_id: return
-        except Exception as e:
-            # 这里的报错忽略，继续运行
-            pass
+        except: pass
 
         try:
             self.check_config_reload()
@@ -114,10 +108,16 @@ class MemeMaster(Star):
             msg_str = (event.message_str or "").strip()
             uid = event.unified_msg_origin
             img_urls = self._get_all_img_urls(event)
+
+            # ★★★ 核心修复1：空消息安检门 ★★★
+            # 这里的 not msg_str 是判断有没有文字
+            # 这里的 not img_urls 是判断有没有图片
+            # 如果都没有，说明这只是 NapCat 发来的“正在输入”状态通知，直接扔掉！
+            if not msg_str and not img_urls:
+                return 
             
-            # 日志
-            if msg_str or img_urls:
-                print(f"📨 [Meme] 收到: {msg_str[:10]}... (图:{len(img_urls)})", flush=True)
+            # 收到有效消息日志
+            print(f"📨 [Meme] 收到: {msg_str[:10]}... (图:{len(img_urls)})", flush=True)
 
             self.last_active_time = time.time()
             self.last_uid = uid
@@ -183,25 +183,29 @@ class MemeMaster(Star):
                 msg_str = " ".join(combined_text_list)
                 img_urls = combined_images
 
-            # ★★★ 这里之前报错，现在不会了 ★★★
+            # 记忆处理
             self.msg_count += 1
-            
             threshold = self.local_config.get("summary_threshold", 40)
             curr_len = len(self.chat_history_buffer)
-            print(f"📊 [Meme] 消息处理完毕 (记忆: {curr_len}/{threshold})", flush=True)
+            print(f"📊 [Meme] 处理完毕 (记忆: {curr_len}/{threshold})", flush=True)
 
             img_mark = f" [Image*{len(img_urls)}]" if img_urls else ""
             log_entry = f"User: {msg_str}{img_mark}"
-            
-            # ★★★ 只要上面不报错，这就一定能保存！ ★★★
             self.chat_history_buffer.append(log_entry)
             self.save_buffer_to_disk()
             
             time_info = self.get_full_time_str()
             system_context = [f"Time: {time_info}"]
             
-            if self.current_summary:
-                system_context.append(f"Long-term Memory: {self.current_summary}")
+            # ★★★ 核心修复2：记忆注入频率判断 ★★★
+            mem_interval = int(self.local_config.get("memory_interval", 20))
+            injected_mem = False
+            
+            # 只有当：有记忆 AND (是第1条消息 OR 消息计数能被间隔整除) 时，才注入
+            if self.current_summary and mem_interval > 0:
+                if self.msg_count == 1 or (self.msg_count % mem_interval == 0):
+                    system_context.append(f"Long-term Memory: {self.current_summary}")
+                    injected_mem = True
 
             hints = []
             if random.randint(1, 100) <= int(self.local_config.get("reply_prob", 50)):
@@ -211,7 +215,9 @@ class MemeMaster(Star):
                     hint_str = " ".join([f"<MEME:{h}>" for h in hints])
                     system_context.append(f"Meme Hints: {hint_str}")
 
-            print(f"💉 [Meme] 注入: 时间={time_info} | 表情={len(hints)}", flush=True)
+            # 日志会告诉你这次有没有注入记忆
+            mem_status = "✅已注入" if injected_mem else "⏭️跳过"
+            print(f"💉 [Meme] 上下文: 时间={time_info} | 记忆={mem_status} | 表情={len(hints)}", flush=True)
 
             final_text = f"{msg_str}\n\n(System Context: {' | '.join(system_context)})"
             
@@ -295,12 +301,43 @@ class MemeMaster(Star):
             print(f"❌ [Meme] 输出处理出错: {e}", flush=True)
 
     def clean_markdown(self, text):
-        text = re.sub(r"(?si)thought.*?End of thought", "", text)
+        text = re.sub(r"(?si)^[^\w\s]*thought.*?End of thought", "", text)
         text = re.sub(r"<thought>.*?</thought>", "", text, flags=re.DOTALL)
         text = text.replace("**", "")
         text = text.replace("### ", "").replace("## ", "")
         if text.startswith("> "): text = text[2:]
         return text.strip()
+
+    def smart_split(self, chain):
+        segs = []; buf = []
+        def flush(): 
+            if buf: segs.append(buf[:]); buf.clear()
+        
+        for c in chain:
+            if isinstance(c, Image): flush(); segs.append([c]); continue
+            if isinstance(c, Plain):
+                txt = c.text; idx = 0; chunk = ""; stack = []
+                while idx < len(txt):
+                    char = txt[idx]
+                    if char in self.pair_map: stack.append(char)
+                    elif stack and char == self.pair_map[stack[-1]]: stack.pop()
+                    
+                    is_split_char = char in self.split_chars
+                    force_split = (len(chunk) > 80)
+                    
+                    if (not stack and is_split_char) or force_split:
+                        chunk += char
+                        if is_split_char:
+                            while idx + 1 < len(txt) and txt[idx+1] in self.split_chars: 
+                                idx += 1; chunk += txt[idx]
+                        if chunk.strip(): buf.append(Plain(chunk))
+                        flush(); chunk = ""
+                    else: chunk += char
+                    idx += 1
+                if chunk: buf.append(Plain(chunk))
+        flush(); return segs
+    
+    # ... 下面是 Config/Data/Server 部分 ...
 
     def load_config(self):
         default = {
@@ -500,6 +537,7 @@ class MemeMaster(Star):
         segs = []; buf = []
         def flush(): 
             if buf: segs.append(buf[:]); buf.clear()
+        
         for c in chain:
             if isinstance(c, Image): flush(); segs.append([c]); continue
             if isinstance(c, Plain):
@@ -508,9 +546,15 @@ class MemeMaster(Star):
                     char = txt[idx]
                     if char in self.pair_map: stack.append(char)
                     elif stack and char == self.pair_map[stack[-1]]: stack.pop()
-                    if not stack and char in "\n。？！?!":
+                    
+                    is_split_char = char in self.split_chars
+                    force_split = (len(chunk) > 80)
+                    
+                    if (not stack and is_split_char) or force_split:
                         chunk += char
-                        while idx + 1 < len(txt) and txt[idx+1] in "\n。？！?!": idx += 1; chunk += txt[idx]
+                        if is_split_char:
+                            while idx + 1 < len(txt) and txt[idx+1] in self.split_chars: 
+                                idx += 1; chunk += txt[idx]
                         if chunk.strip(): buf.append(Plain(chunk))
                         flush(); chunk = ""
                     else: chunk += char
