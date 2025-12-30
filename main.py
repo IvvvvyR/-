@@ -24,10 +24,9 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import EventMessageType
 from astrbot.core.message.components import Image, Plain
 
-# ★★★ 1. 全局加载提示 (证明文件没放错) ★★★
-print(">>> [Meme] 插件主文件 v17 (Debug Mode) 已被系统加载 <<<", flush=True)
+print(">>> [Meme] 插件主文件 v18 (Split Handlers) 已被系统加载 <<<", flush=True)
 
-@register("vv_meme_master", "Vvivloy", "防抖/图库/记忆/思考链/静默模式", "5.7.0")
+@register("vv_meme_master", "Vvivloy", "防抖/图库/记忆/思考链/静默模式", "5.8.0")
 class MemeMaster(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -78,36 +77,34 @@ class MemeMaster(Star):
         except asyncio.CancelledError: pass
 
     # ==========================
-    # 核心调试区域
+    # 核心修改：拆分入口，防止装饰器冲突
     # ==========================
-    @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE, priority=0)
-    @filter.event_message_type(EventMessageType.GROUP_MESSAGE, priority=0)
-    async def handle_input(self, event: AstrMessageEvent):
-        # ★★★ 2. 只要进来了，立刻打印！(证明 AstrBot 调用了插件) ★★★
-        print(f">>> [调试] 进入 handle_input. Event类型: {type(event)}", flush=True)
+    
+    # 入口1：私聊 (优先级 1)
+    @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE, priority=1)
+    async def handle_private(self, event: AstrMessageEvent):
+        print(">>> [调试] 捕获私聊消息", flush=True)
+        await self._master_handler(event)
+
+    # 入口2：群聊 (优先级 1)
+    @filter.event_message_type(EventMessageType.GROUP_MESSAGE, priority=1)
+    async def handle_group(self, event: AstrMessageEvent):
+        print(">>> [调试] 捕获群聊消息", flush=True)
+        await self._master_handler(event)
+
+    # 统一处理逻辑
+    async def _master_handler(self, event: AstrMessageEvent):
+        print(f">>> [调试] 进入主逻辑处理. Sender: {event.message_obj.sender.user_id}", flush=True)
 
         # 1. 基础防爆 & 机器人自检
         try:
-            # 尝试获取发送者ID
-            if not event.message_obj or not event.message_obj.sender:
-                print("⚠️ [调试] 消息对象为空或无发送者，跳过。", flush=True)
-                return
-
             user_id = str(event.message_obj.sender.user_id)
-            
-            # 尝试获取机器人ID
             provider_bot = self.context.get_current_provider_bot()
-            if not provider_bot:
-                # 这种情况下我们不 return，只是打印个警告，继续跑
-                print("⚠️ [调试] 无法获取 Provider Bot ID，跳过自检。", flush=True)
-            else:
-                bot_id = str(provider_bot.self_id)
-                if user_id == bot_id: 
-                    print("⚠️ [调试] 检测到机器人自己在说话，忽略。", flush=True)
-                    return
+            if provider_bot and user_id == str(provider_bot.self_id): 
+                print("⚠️ [调试] 忽略自身消息", flush=True)
+                return
         except Exception as e:
-            # ★★★ 3. 这里的报错非常关键 ★★★
-            print(f"❌ [调试] ID检测阶段发生错误: {e}", flush=True)
+            print(f"❌ [调试] ID检测错误: {e}", flush=True)
             return
 
         try:
@@ -119,7 +116,7 @@ class MemeMaster(Star):
             
             # 收到消息
             info = f"{msg_str[:10]}..." if msg_str else "[图片]"
-            print(f"📨 [Meme] 有效捕获: {info} (图:{len(img_urls)})", flush=True)
+            print(f"📨 [Meme] 有效: {info} (图:{len(img_urls)})", flush=True)
 
             self.last_active_time = time.time()
             self.last_uid = uid
@@ -138,7 +135,7 @@ class MemeMaster(Star):
                 if uid in self.sessions:
                     if self.sessions[uid].get('timer_task'): self.sessions[uid]['timer_task'].cancel()
                     self.sessions[uid]['flush_event'].set()
-                print("⚡ [调试] 检测到指令，穿透放行。", flush=True)
+                print("⚡ [调试] 指令穿透", flush=True)
                 return 
 
             # 防抖逻辑
@@ -155,10 +152,10 @@ class MemeMaster(Star):
                     s['timer_task'] = asyncio.create_task(self._debounce_timer(uid, debounce_time))
                     
                     event.stop_event()
-                    print(f"⏳ [Meme] 防抖追加中 (队列: {len(s['queue'])})", flush=True)
+                    print(f"⏳ [Meme] 防抖追加 (Q:{len(s['queue'])})", flush=True)
                     return 
 
-                print(f"🆕 [Meme] 启动防抖计时 ({debounce_time}s)...", flush=True)
+                print(f"🆕 [Meme] 启动防抖 ({debounce_time}s)...", flush=True)
                 flush_event = asyncio.Event()
                 timer_task = asyncio.create_task(self._debounce_timer(uid, debounce_time))
                 
@@ -190,7 +187,7 @@ class MemeMaster(Star):
             self.msg_count += 1
             threshold = self.local_config.get("summary_threshold", 40)
             curr_len = len(self.chat_history_buffer)
-            print(f"📊 [Meme] 消息处理完毕 (记忆池: {curr_len}/{threshold})", flush=True)
+            print(f"📊 [Meme] 处理完毕 (记忆: {curr_len}/{threshold})", flush=True)
 
             img_mark = f" [Image*{len(img_urls)}]" if img_urls else ""
             log_entry = f"User: {msg_str}{img_mark}"
@@ -211,7 +208,7 @@ class MemeMaster(Star):
                     hint_str = " ".join([f"<MEME:{h}>" for h in hints])
                     system_context.append(f"Meme Hints: {hint_str}")
 
-            print(f"💉 [Meme] 注入上下文: 时间={time_info} | 表情包={len(hints)}个", flush=True)
+            print(f"💉 [Meme] 注入: 时间={time_info} | 表情={len(hints)}", flush=True)
 
             final_text = f"{msg_str}\n\n(System Context: {' | '.join(system_context)})"
             
@@ -222,7 +219,7 @@ class MemeMaster(Star):
             
         except Exception as e:
             import traceback
-            print(f"❌ [Meme] 严重错误 (Main Logic): {e}", flush=True)
+            print(f"❌ [Meme] 主逻辑严重错误: {e}", flush=True)
             traceback.print_exc()
 
     @filter.on_decorating_result(priority=0)
@@ -341,7 +338,13 @@ class MemeMaster(Star):
             if not provider: return
             
             history_text = "\n".join(batch)
-            prompt = f"当前时间：{self.get_full_time_str()}\n请总结以下对话为一段“长期记忆/日记”。\n重点：用户喜好、重要事件、约定。\n忽略：寒暄。\n字数：200字内。\n内容：\n{history_text}"
+            prompt = f"""当前时间：{now_str}
+                这是一段过去的对话记录。请将其总结为一段简练的“长期记忆”或“日记”。
+                重点记录：用户的喜好、发生的重要事件、双方约定的事情。
+                忽略：无意义的寒暄、重复的表情包指令。
+                字数限制：200字以内。
+                对话内容：
+                {history_text}"""
             
             resp = await provider.text_chat(prompt, session_id=None)
             summary = (getattr(resp, "completion_text", None) or getattr(resp, "text", "")).strip()
