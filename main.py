@@ -13,7 +13,6 @@ from concurrent.futures import ThreadPoolExecutor
 from aiohttp import web
 from PIL import Image as PILImage
 
-# 尝试加载农历库
 try:
     from lunar_python import Solar
     HAS_LUNAR = True
@@ -25,9 +24,10 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import EventMessageType
 from astrbot.core.message.components import Image, Plain
 
-print("DEBUG: MemeMaster Pro (v16 - Final Strict Logic) Loaded")
+# ★★★ 1. 全局加载提示 (证明文件没放错) ★★★
+print(">>> [Meme] 插件主文件 v17 (Debug Mode) 已被系统加载 <<<", flush=True)
 
-@register("vv_meme_master", "Vvivloy", "防抖/图库/记忆/思考链/静默模式", "5.6.0")
+@register("vv_meme_master", "Vvivloy", "防抖/图库/记忆/思考链/静默模式", "5.7.0")
 class MemeMaster(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -56,7 +56,6 @@ class MemeMaster(Star):
         self.is_summarizing = False
         self.last_auto_save_time = 0
         self.last_active_time = time.time()
-        
         self.pair_map = {'“': '”', '《': '》', '（': '）', '(': ')', '[': ']', '{': '}'}
 
         try:
@@ -66,14 +65,11 @@ class MemeMaster(Star):
             loop.create_task(self._lonely_watcher())
             print("✅ [Meme] 核心服务启动成功！", flush=True)
         except Exception as e:
-            print(f"ERROR: 任务启动失败: {e}", flush=True)
+            print(f"❌ [Meme] 服务启动失败: {e}", flush=True)
 
     def __del__(self):
         self.running = False 
 
-    # ==========================
-    # 核心 1：输入处理
-    # ==========================
     async def _debounce_timer(self, uid: str, duration: float):
         try:
             await asyncio.sleep(duration)
@@ -81,14 +77,38 @@ class MemeMaster(Star):
                 self.sessions[uid]['flush_event'].set()
         except asyncio.CancelledError: pass
 
+    # ==========================
+    # 核心调试区域
+    # ==========================
     @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE, priority=0)
     @filter.event_message_type(EventMessageType.GROUP_MESSAGE, priority=0)
     async def handle_input(self, event: AstrMessageEvent):
+        # ★★★ 2. 只要进来了，立刻打印！(证明 AstrBot 调用了插件) ★★★
+        print(f">>> [调试] 进入 handle_input. Event类型: {type(event)}", flush=True)
+
+        # 1. 基础防爆 & 机器人自检
         try:
+            # 尝试获取发送者ID
+            if not event.message_obj or not event.message_obj.sender:
+                print("⚠️ [调试] 消息对象为空或无发送者，跳过。", flush=True)
+                return
+
             user_id = str(event.message_obj.sender.user_id)
-            bot_id = str(self.context.get_current_provider_bot().self_id)
-            if user_id == bot_id: return
-        except: return
+            
+            # 尝试获取机器人ID
+            provider_bot = self.context.get_current_provider_bot()
+            if not provider_bot:
+                # 这种情况下我们不 return，只是打印个警告，继续跑
+                print("⚠️ [调试] 无法获取 Provider Bot ID，跳过自检。", flush=True)
+            else:
+                bot_id = str(provider_bot.self_id)
+                if user_id == bot_id: 
+                    print("⚠️ [调试] 检测到机器人自己在说话，忽略。", flush=True)
+                    return
+        except Exception as e:
+            # ★★★ 3. 这里的报错非常关键 ★★★
+            print(f"❌ [调试] ID检测阶段发生错误: {e}", flush=True)
+            return
 
         try:
             self.check_config_reload()
@@ -97,14 +117,15 @@ class MemeMaster(Star):
             uid = event.unified_msg_origin
             img_urls = self._get_all_img_urls(event)
             
-            if msg_str or img_urls:
-                print(f"📨 [Meme] 收到: {msg_str[:15]}... (图:{len(img_urls)})", flush=True)
+            # 收到消息
+            info = f"{msg_str[:10]}..." if msg_str else "[图片]"
+            print(f"📨 [Meme] 有效捕获: {info} (图:{len(img_urls)})", flush=True)
 
             self.last_active_time = time.time()
             self.last_uid = uid
             self.last_session_id = event.session_id
 
-            # 自动进货 (后台暗线)
+            # 自动进货
             if img_urls and not msg_str.startswith("/"):
                 cd = float(self.local_config.get("auto_save_cooldown", 60))
                 if time.time() - self.last_auto_save_time > cd:
@@ -117,6 +138,7 @@ class MemeMaster(Star):
                 if uid in self.sessions:
                     if self.sessions[uid].get('timer_task'): self.sessions[uid]['timer_task'].cancel()
                     self.sessions[uid]['flush_event'].set()
+                print("⚡ [调试] 检测到指令，穿透放行。", flush=True)
                 return 
 
             # 防抖逻辑
@@ -133,10 +155,10 @@ class MemeMaster(Star):
                     s['timer_task'] = asyncio.create_task(self._debounce_timer(uid, debounce_time))
                     
                     event.stop_event()
-                    print(f"⏳ [Meme] 追加防抖 (队列: {len(s['queue'])})", flush=True)
+                    print(f"⏳ [Meme] 防抖追加中 (队列: {len(s['queue'])})", flush=True)
                     return 
 
-                print(f"🆕 [Meme] 启动防抖 ({debounce_time}s)...", flush=True)
+                print(f"🆕 [Meme] 启动防抖计时 ({debounce_time}s)...", flush=True)
                 flush_event = asyncio.Event()
                 timer_task = asyncio.create_task(self._debounce_timer(uid, debounce_time))
                 
@@ -164,7 +186,7 @@ class MemeMaster(Star):
                 msg_str = " ".join(combined_text_list)
                 img_urls = combined_images
 
-            # 记忆与提示注入
+            # 记忆处理
             self.msg_count += 1
             threshold = self.local_config.get("summary_threshold", 40)
             curr_len = len(self.chat_history_buffer)
@@ -189,7 +211,7 @@ class MemeMaster(Star):
                     hint_str = " ".join([f"<MEME:{h}>" for h in hints])
                     system_context.append(f"Meme Hints: {hint_str}")
 
-            print(f"💉 [Meme] 注入上下文: 时间={time_info} | 表情包提示={len(hints)}个", flush=True)
+            print(f"💉 [Meme] 注入上下文: 时间={time_info} | 表情包={len(hints)}个", flush=True)
 
             final_text = f"{msg_str}\n\n(System Context: {' | '.join(system_context)})"
             
@@ -200,12 +222,9 @@ class MemeMaster(Star):
             
         except Exception as e:
             import traceback
-            print(f"❌ [Meme] 严重错误: {e}", flush=True)
+            print(f"❌ [Meme] 严重错误 (Main Logic): {e}", flush=True)
             traceback.print_exc()
 
-    # ==========================
-    # 核心 2：输出处理
-    # ==========================
     @filter.on_decorating_result(priority=0)
     async def on_output(self, event: AstrMessageEvent):
         if getattr(event, "__meme_processed", False): return
@@ -275,9 +294,6 @@ class MemeMaster(Star):
         except Exception as e:
             print(f"❌ [Meme] 输出处理出错: {e}", flush=True)
 
-    # ==========================
-    # 工具函数 (哈希、鉴图、Web)
-    # ==========================
     def clean_markdown(self, text):
         text = re.sub(r"(?si)thought.*?End of thought", "", text)
         text = re.sub(r"<thought>.*?</thought>", "", text, flags=re.DOTALL)
@@ -325,13 +341,7 @@ class MemeMaster(Star):
             if not provider: return
             
             history_text = "\n".join(batch)
-            prompt = f"""当前时间：{now_str}
-                这是一段过去的对话记录。请将其总结为一段简练的“长期记忆”或“日记”。
-                重点记录：用户的喜好、发生的重要事件、双方约定的事情。
-                忽略：无意义的寒暄、重复的表情包指令。
-                字数限制：200字以内。
-                对话内容：
-                {history_text}"""
+            prompt = f"当前时间：{self.get_full_time_str()}\n请总结以下对话为一段“长期记忆/日记”。\n重点：用户喜好、重要事件、约定。\n忽略：寒暄。\n字数：200字内。\n内容：\n{history_text}"
             
             resp = await provider.text_chat(prompt, session_id=None)
             summary = (getattr(resp, "completion_text", None) or getattr(resp, "text", "")).strip()
@@ -359,12 +369,10 @@ class MemeMaster(Star):
                     if r.status == 200: img_data = await r.read()
             if not img_data: return
 
-            # 哈希计算与查重
             current_hash = await self._calc_hash_async(img_data)
             if current_hash:
                 for _, exist_hash in self.img_hashes.items():
                     if bin(int(current_hash, 16) ^ int(exist_hash, 16)).count('1') <= 5:
-                        # ★★★ 把这个 Print 加回来了！ ★★★
                         print(f"♻️ [自动进货] 图片已存在 (指纹匹配)，跳过", flush=True)
                         return
 
@@ -385,7 +393,6 @@ class MemeMaster(Star):
                     comp, ext = await self._compress_image(img_data)
                     fn = f"{int(time.time())}{ext}"
                     with open(os.path.join(self.img_dir, fn), "wb") as f: f.write(comp)
-                    # 标记 Source: auto，支持前端过滤
                     self.data[fn] = {"tags": full_tag, "source": "auto", "hash": current_hash}
                     if current_hash: self.img_hashes[fn] = current_hash
                     self.save_data()
@@ -449,10 +456,8 @@ class MemeMaster(Star):
                     count += 1
             except: pass
         self.save_data()
-        # ★★★ 指纹库加载完成的提示 ★★★
         print(f"✅ [Meme] 指纹库加载完毕，有效图片: {len(self.img_hashes)}", flush=True)
 
-    # ★★★ 哈希计算函数在这里！ ★★★
     async def _calc_hash_async(self, image_data):
         def _sync():
             try:
@@ -553,14 +558,14 @@ class MemeMaster(Star):
         app = web.Application()
         app._client_max_size = 100 * 1024 * 1024 
         app.router.add_get("/", self.h_idx)
-        app.router.add_post("/upload", self.h_up) # Web上传接口
+        app.router.add_post("/upload", self.h_up)
         app.router.add_post("/batch_delete", self.h_del)
         app.router.add_post("/update_tag", self.h_tag)
         app.router.add_get("/get_config", self.h_gcf)
         app.router.add_post("/update_config", self.h_ucf)
-        app.router.add_get("/backup", self.h_backup) # 备份接口
-        app.router.add_post("/restore", self.h_restore) # 恢复接口
-        app.router.add_post("/slim_images", self.h_slim) # 瘦身接口
+        app.router.add_get("/backup", self.h_backup)
+        app.router.add_post("/restore", self.h_restore)
+        app.router.add_post("/slim_images", self.h_slim)
         app.router.add_static("/images/", path=self.img_dir)
         runner = web.AppRunner(app)
         await runner.setup()
@@ -587,7 +592,6 @@ class MemeMaster(Star):
                 fn = f"{int(time.time()*1000)}_{random.randint(100,999)}{ext}"
                 with open(os.path.join(self.img_dir, fn), "wb") as f: f.write(comp)
                 h = await self._calc_hash_async(comp) 
-                # Source: manual，支持前端过滤
                 self.data[fn] = {"tags": tag, "source": "manual", "hash": h}
                 if h: self.img_hashes[fn] = h
         self.save_data(); return web.Response(text="ok")
